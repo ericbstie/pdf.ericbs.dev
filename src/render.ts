@@ -1,4 +1,4 @@
-import type { Box, Marks, Stroke, Writing } from "./edits";
+import type { Box, Marks, Point, Stroke, Writing } from "./edits";
 import { checkPath, checkWidth, polylinePath } from "./paths";
 
 const INK = "#0d0d0d";
@@ -39,14 +39,19 @@ function highlight(context: CanvasRenderingContext2D, box: Box): void {
 export type PagePaint = {
   image: CanvasImageSource;
   pixelsPerPoint: number;
+  /** Which page point the image's top-left corner is, for a canvas holding one part of a page. */
+  at?: Point;
   marks: Marks;
   hovered?: Box;
 };
 
 export function paintPage(context: CanvasRenderingContext2D, paint: PagePaint): void {
+  const at = paint.at ?? { x: 0, y: 0 };
+  const density = paint.pixelsPerPoint;
   context.setTransform(1, 0, 0, 1, 0, 0);
   context.drawImage(paint.image, 0, 0);
-  context.setTransform(paint.pixelsPerPoint, 0, 0, paint.pixelsPerPoint, 0, 0);
+  // Marks are kept in page points, so the canvas takes on the page's own measure and corner.
+  context.setTransform(density, 0, 0, density, -at.x * density, -at.y * density);
   context.strokeStyle = INK;
   context.fillStyle = INK;
   if (paint.hovered) highlight(context, paint.hovered);

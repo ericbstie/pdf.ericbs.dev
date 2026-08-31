@@ -9,7 +9,12 @@
 
   body {
     @apply m-0 bg-neutral-800 font-sans text-neutral-100;
-    /* A tap counts straight away, rather than waiting to see if a second one is coming to zoom with. */
-    @apply touch-manipulation;
+    /*
+      Panning is the browser's; zooming is the editor's. Its own zoom lays the pages out larger and
+      paints them again at that size, where the browser's would stretch what has already been
+      painted and slide the toolbar off the bottom of the screen. A tap also counts straight away,
+      since there is no longer a second one to wait for.
+    */
+    touch-action: pan-x pan-y;
   }
 }

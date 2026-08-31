@@ -18,6 +18,26 @@ export async function openPdf(page: Page, bytes: Uint8Array, name = "fixture.pdf
   await pageCanvas(page).waitFor();
 }
 
+/** The canvas holding the part of the page on screen, painted at the size the page is shown at. */
+export function sharpPart(page: Page, pageNumber = 1): Locator {
+  return page.locator(`canvas[data-part="${pageNumber}"]`);
+}
+
+export async function widthOnScreen(canvas: Locator): Promise<number> {
+  return (await canvas.boundingBox())!.width;
+}
+
+/** Canvas pixels per pixel on screen: under one, the painting is being stretched to fit. */
+export async function sharpness(canvas: Locator): Promise<number> {
+  const drawn = await widthOnScreen(canvas);
+  return (await canvas.evaluate(element => (element as HTMLCanvasElement).width)) / drawn;
+}
+
+/** How far the browser has zoomed itself, which for this editor should always be not at all. */
+export function browserZoom(page: Page): Promise<number> {
+  return page.evaluate(() => window.visualViewport?.scale ?? 1);
+}
+
 /** PDF user space (y up from the page bottom) to viewport pixels inside a canvas box. */
 export function pdfToViewport(canvasBox: Rect, point: Point): Point {
   const scale = canvasBox.width / PAGE_SIZE.width;
@@ -99,6 +119,32 @@ export async function touchDrag(page: Page, from: Point, to: Point, steps = 10):
   }
   await input.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await input.detach();
+  await page.waitForTimeout(SETTLE);
+}
+
+/** Two fingers moving apart or together about a point, which is a pinch either way. */
+export async function pinch(page: Page, about: Point, from: number, to: number, steps = 10): Promise<void> {
+  const input = await page.context().newCDPSession(page);
+  const fingers = (gap: number) => [
+    { id: 0, x: about.x - gap / 2, y: about.y },
+    { id: 1, x: about.x + gap / 2, y: about.y },
+  ];
+  await input.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: fingers(from) });
+  for (let step = 1; step <= steps; step += 1) {
+    const gap = from + ((to - from) * step) / steps;
+    await input.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: fingers(gap) });
+  }
+  await input.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await input.detach();
+  await page.waitForTimeout(SETTLE);
+}
+
+/** Ctrl and the wheel, which is also what a touchpad pinch arrives as. */
+export async function wheelZoom(page: Page, about: Point, notches: number, perNotch = -120): Promise<void> {
+  await page.mouse.move(about.x, about.y);
+  await page.keyboard.down("Control");
+  for (let notch = 0; notch < notches; notch += 1) await page.mouse.wheel(0, perNotch);
+  await page.keyboard.up("Control");
   await page.waitForTimeout(SETTLE);
 }
 

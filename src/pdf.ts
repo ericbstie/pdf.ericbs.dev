@@ -2,7 +2,7 @@ import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist/types/src/display/api";
 import * as workerHandler from "pdfjs-dist/legacy/build/pdf.worker.mjs";
 import { findCheckboxes, toBitmap, toPagePoints } from "./detect";
-import type { Box, Rect } from "./edits";
+import type { Box, Point, Rect } from "./edits";
 import { overlaps } from "./viewport";
 
 /** pdf.js picks this up and parses on this thread, sparing us a separately hosted worker file. */
@@ -37,9 +37,18 @@ export type RenderedPage = {
   boxes: Box[];
 };
 
+/** One part of a page, painted on its own, and which page point its top-left corner is. */
+export type RenderedPart = {
+  image: HTMLCanvasElement;
+  pixelsPerPoint: number;
+  at: Point;
+};
+
 export type OpenPdf = {
   sizes: readonly PageSize[];
   render(pageNumber: number, pixelsPerPoint: number): Promise<RenderedPage>;
+  /** Zoomed in past what one canvas can hold, only the part on screen can be painted sharply. */
+  renderPart(pageNumber: number, pixelsPerPoint: number, part: Rect): Promise<RenderedPart>;
 };
 
 /** Why a file would not open, in terms the editor can put in front of the person who chose it. */
@@ -76,11 +85,21 @@ function printedBoxes(image: HTMLCanvasElement, target: RenderTarget): Box[] {
     .map(rect => ({ page: target.number, rect }));
 }
 
-async function paintToCanvas(page: PDFPageProxy, viewport: PageViewport): Promise<HTMLCanvasElement> {
+/**
+ * Paints as much of the viewport as the canvas is given room for, so a canvas smaller than the
+ * page holds the part the viewport was offset to. Asking to read the pixels back costs the
+ * graphics card's help, so only the one painting whose pixels are searched for boxes asks.
+ */
+async function paintToCanvas(
+  page: PDFPageProxy,
+  viewport: PageViewport,
+  size: { width: number; height: number },
+  readable: boolean,
+): Promise<HTMLCanvasElement> {
   const canvas = document.createElement("canvas");
-  canvas.width = Math.ceil(viewport.width);
-  canvas.height = Math.ceil(viewport.height);
-  const context = canvas.getContext("2d", { willReadFrequently: true })!;
+  canvas.width = Math.ceil(size.width);
+  canvas.height = Math.ceil(size.height);
+  const context = canvas.getContext("2d", { willReadFrequently: readable })!;
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, canvas.width, canvas.height);
   await page.render({ canvas, canvasContext: context, viewport }).promise;
@@ -115,10 +134,22 @@ async function readerFor(doc: PDFDocumentProxy): Promise<OpenPdf> {
     sizes,
     async render(pageNumber, pixelsPerPoint) {
       const page = pages[pageNumber - 1]!;
-      const image = await paintToCanvas(page, page.getViewport({ scale: pixelsPerPoint }));
+      const viewport = page.getViewport({ scale: pixelsPerPoint });
+      const image = await paintToCanvas(page, viewport, viewport, !found.has(pageNumber));
       const boxes = found.get(pageNumber) ?? (await boxesOn(page, image, pixelsPerPoint));
       found.set(pageNumber, boxes);
       return { number: pageNumber, size: sizes[pageNumber - 1]!, image, pixelsPerPoint, boxes };
+    },
+    async renderPart(pageNumber, pixelsPerPoint, part) {
+      const page = pages[pageNumber - 1]!;
+      // The offset moves the page under the canvas, which then holds the part that lands on it.
+      const viewport = page.getViewport({
+        scale: pixelsPerPoint,
+        offsetX: -part.x * pixelsPerPoint,
+        offsetY: -part.y * pixelsPerPoint,
+      });
+      const size = { width: part.width * pixelsPerPoint, height: part.height * pixelsPerPoint };
+      return { image: await paintToCanvas(page, viewport, size, false), pixelsPerPoint, at: { x: part.x, y: part.y } };
     },
   };
 }

@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PageView } from "./PageView";
 import { Toolbar, type Tool } from "./Toolbar";
 import { downloadFile } from "./download";
-import { type Command, marksFrom, marksOnPage, withoutLast } from "./edits";
+import { type Command, type Point, marksFrom, marksOnPage, withoutLast } from "./edits";
 import { exportPdf } from "./export";
+import { watchZoomGestures } from "./gestures";
 import { type OpenPdf, type OpenProblem, openPdf } from "./pdf";
 import { forgetSession, keepEdits, keepFile, loadSession, newFileId } from "./session";
 import { fitScale, widestPage } from "./viewport";
+import { anchorFor, clampZoom } from "./zoom";
 
 /** The id is minted per opening, so it tells this file's pages from the last file's. */
 type OpenFile = { id: string; name: string; bytes: Uint8Array; pdf: OpenPdf };
@@ -15,6 +17,9 @@ type OpenFile = { id: string; name: string; bytes: Uint8Array; pdf: OpenPdf };
 const MAX_FILE_BYTES = 100 * 1024 * 1024;
 
 const PICKER_ID = "open-pdf";
+
+/** The space above the first page and between the pages, in page points, so it zooms with them. */
+const PAGE_GAP = 16;
 
 const TROUBLE: Record<OpenProblem, string> = {
   encrypted: "This PDF is locked with a password, so it cannot be opened here.",
@@ -93,13 +98,37 @@ export function Editor() {
   const [notice, setNotice] = useState<string | null>(null);
   /** The edits as they stood when they last went to disk as a PDF, so leaving knows what is at stake. */
   const [savedAt, setSavedAt] = useState<readonly Command[] | null>(null);
+  /** How much larger than its laid-out size the file is being read at. */
+  const [zoom, setZoom] = useState(1);
   const picker = useRef<HTMLInputElement>(null);
   /** Dropped the moment a file is opened by hand, so a restore landing late gives way to it. */
   const restoreWanted = useRef(true);
+  const pages = useRef<HTMLDivElement>(null);
+  /** The zoom as the fingers have left it, which is ahead of the zoom the pages are drawn at. */
+  const zoomed = useRef(1);
+  /** Where the pages' corner has to land once they are laid out again, or nothing if it may stay. */
+  const anchor = useRef<Point | null>(null);
   const { ref, width } = useContainerWidth();
   const marks = useMemo(() => marksFrom(commands), [commands]);
   const undo = () => setCommands(withoutLast);
   const unsaved = commands.length > 0 && commands !== savedAt;
+
+  /** Zooms about a point on the screen, noting where the pages have to land to stay under it. */
+  const zoomAbout = (factor: number, focus: Point): void => {
+    const next = clampZoom(zoomed.current * factor);
+    if (next === zoomed.current) return;
+    const corner = pages.current?.getBoundingClientRect();
+    if (corner) anchor.current = anchorFor({ x: corner.left, y: corner.top }, focus, next / zoomed.current);
+    zoomed.current = next;
+    setZoom(next);
+  };
+
+  /** A file arrives at the size it fits at, whatever the last one was being read at. */
+  const resetZoom = (): void => {
+    zoomed.current = 1;
+    anchor.current = null;
+    setZoom(1);
+  };
 
   const takeFile = async (chosen: File | undefined): Promise<void> => {
     if (!chosen) return;
@@ -113,6 +142,7 @@ export function Editor() {
     restoreWanted.current = false;
     setNotice(null);
     setTool(null);
+    resetZoom();
     setCommands([]);
     setSavedAt(null);
     setFile({ ...kept, pdf: opened.pdf });
@@ -128,6 +158,7 @@ export function Editor() {
     setCommands([]);
     setSavedAt(null);
     setTool(null);
+    resetZoom();
     setNotice(null);
     await forgetSession();
   };
@@ -171,6 +202,29 @@ export function Editor() {
     return () => window.removeEventListener("beforeunload", confirmLeaving);
   }, [unsaved]);
 
+  /** Zoom is for a file; with none open the browser's own is the one that makes sense. */
+  useEffect(() => {
+    const scroller = ref.current;
+    if (!scroller || !file) return;
+    // What it is handed reads nothing but refs, so it stays right however often this rerenders.
+    return watchZoomGestures(scroller, zoomAbout);
+  }, [file, ref]);
+
+  /**
+   * The pages are laid out at the new size, and then put back under the fingers: their corner is
+   * measured where it has landed and the scroll makes up the difference. Measuring beats working
+   * it out, since it is the browser that decides where a page sits when it fits without scrolling.
+   */
+  useLayoutEffect(() => {
+    const wanted = anchor.current;
+    anchor.current = null;
+    const scroller = ref.current;
+    const corner = pages.current?.getBoundingClientRect();
+    if (!wanted || !scroller || !corner) return;
+    scroller.scrollLeft += corner.left - wanted.x;
+    scroller.scrollTop += corner.top - wanted.y;
+  }, [zoom, ref]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement) return;
@@ -181,7 +235,7 @@ export function Editor() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const scale = file ? fitScale(width, widestPage(file.pdf.sizes)) : 1;
+  const scale = (file ? fitScale(width, widestPage(file.pdf.sizes)) : 1) * zoom;
   const pixelRatio = window.devicePixelRatio || 1;
 
   return (
@@ -217,7 +271,16 @@ export function Editor() {
       {notice && <Notice text={notice} onDismiss={() => setNotice(null)} />}
       {file && width > 0 && (
         // Keyed by the opening, so a new file gets new pages rather than the last file's leftovers.
-        <div key={file.id} className="flex flex-col items-center gap-6 pt-8 pb-28">
+        // Exactly as wide as the widest page, so its corner is the pages' own corner wherever the
+        // browser puts it, and the space around them grows with them: zoomed in, everything above a
+        // page moves in step with the page itself. The room at the bottom is for the toolbar, which
+        // keeps its size on the screen whatever the pages are doing.
+        <div
+          key={file.id}
+          ref={pages}
+          className="mx-auto flex w-max flex-col items-center pb-28"
+          style={{ gap: PAGE_GAP * scale, paddingTop: PAGE_GAP * scale }}
+        >
           {file.pdf.sizes.map((size, index) => (
             <PageView
               key={index}

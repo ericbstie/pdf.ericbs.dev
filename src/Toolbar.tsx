@@ -70,7 +70,8 @@ export function Toolbar({ tool, onTool, onOpen, onClose, onUndo, canUndo, onSave
   const pick = (wanted: Exclude<Tool, null>) => () => onTool(tool === wanted ? null : wanted);
   return (
     <div
-      className="fixed bottom-0 left-1/2 -translate-x-1/2"
+      // Fixed to the screen rather than to the pages, so it stays put however far they are zoomed.
+      className="fixed bottom-0 left-1/2 z-20 -translate-x-1/2"
       style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}
     >
       <div className="flex gap-1 rounded-full bg-neutral-900/90 p-1.5 shadow-xl ring-1 ring-white/10 backdrop-blur">

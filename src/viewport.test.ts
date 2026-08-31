@@ -1,6 +1,18 @@
 import { expect, test } from "bun:test";
 import type { Box } from "./edits";
-import { boxAt, fitScale, overlaps, paintDensity, reachFor, toPagePoint, widestPage } from "./viewport";
+import {
+  boxAt,
+  fitScale,
+  overlaps,
+  paintDensity,
+  reachFor,
+  stillFits,
+  toPagePoint,
+  visiblePart,
+  wholePageIsSharp,
+  widestPage,
+  withBand,
+} from "./viewport";
 
 const box: Box = { page: 1, rect: { x: 100, y: 200, width: 14, height: 14 } };
 const LETTER = { width: 612, height: 792 };
@@ -45,6 +57,46 @@ test("an outsized page is painted coarsely enough to stay within canvas limits",
 
 test("an ordinary page on a sharp screen is not coarsened at all", () => {
   expect(paintDensity(1.5, 2, LETTER)).toBe(1.5 * 2);
+});
+
+test("a page read at its own size fits in one canvas, and zoomed in far enough it does not", () => {
+  expect(wholePageIsSharp(1.5, 2, LETTER)).toBe(true);
+  expect(wholePageIsSharp(6, 2, LETTER)).toBe(false);
+});
+
+test("the part on screen is painted as sharply as the whole page could not be", () => {
+  const part = { width: 200, height: 300 };
+  expect(paintDensity(6, 2, part)).toBeGreaterThan(paintDensity(6, 2, LETTER));
+});
+
+const WINDOW = { left: 0, top: 0, width: 800, height: 600 };
+
+test("a page hanging off the bottom of the window is visible as far as the window goes", () => {
+  const sheet = { left: 100, top: -200, width: 600, height: 1200 };
+  expect(visiblePart(sheet, WINDOW, 2)).toEqual({ x: 0, y: 100, width: 300, height: 300 });
+});
+
+test("a page scrolled clean past has no part on screen", () => {
+  expect(visiblePart({ left: 0, top: -900, width: 600, height: 800 }, WINDOW, 1)).toBeNull();
+});
+
+test("the part painted reaches past the screen, but never past the page", () => {
+  const banded = withBand({ x: 0, y: 300, width: 300, height: 300 }, LETTER);
+  expect(banded.x).toBe(0);
+  expect(banded.y).toBeLessThan(300);
+  expect(banded.width).toBeGreaterThan(300);
+  expect(banded.x + banded.width).toBeLessThanOrEqual(LETTER.width);
+});
+
+test("a painted part holds through a nudge and gives way to a scroll", () => {
+  const part = withBand({ x: 100, y: 100, width: 200, height: 200 }, LETTER);
+  expect(stillFits(part, { x: 110, y: 110, width: 200, height: 200 })).toBe(true);
+  expect(stillFits(part, { x: 100, y: 400, width: 200, height: 200 })).toBe(false);
+});
+
+test("a painted part far larger than the screen is painted smaller instead", () => {
+  const wholePage = { x: 0, y: 0, ...LETTER };
+  expect(stillFits(wholePage, { x: 0, y: 0, width: 100, height: 100 })).toBe(false);
 });
 
 test("toPagePoint undoes the display scale", () => {

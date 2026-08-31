@@ -1,10 +1,26 @@
-import { type PointerEvent as ReactPointerEvent, type RefObject, useEffect, useRef, useState } from "react";
-import type { Box, Command, Marks, Point } from "./edits";
-import type { OpenPdf, PageSize, RenderedPage } from "./pdf";
+import {
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import type { Box, Command, Marks, Point, Rect } from "./edits";
+import type { OpenPdf, PageSize, RenderedPage, RenderedPart } from "./pdf";
 import { paintPage } from "./render";
 import { keepEncodable } from "./text";
 import type { Tool } from "./Toolbar";
-import { boxAt, paintDensity, reachFor, toPagePoint } from "./viewport";
+import {
+  boxAt,
+  paintDensity,
+  reachFor,
+  stillFits,
+  toPagePoint,
+  visiblePart,
+  wholePageIsSharp,
+  withBand,
+} from "./viewport";
 
 const PEN_WIDTH = 2;
 const TEXT_SIZE = 14;
@@ -40,9 +56,12 @@ function cursorFor(tool: Tool, overBox: boolean): string {
   return overBox ? "cursor-pointer" : "cursor-default";
 }
 
-/** With the pen out, one finger draws instead of scrolling — but two still pan and zoom the page. */
+/**
+ * With the pen out a finger draws rather than scrolling, so the browser is left nothing to do
+ * with it. Either way two fingers are a pinch, which the editor answers itself.
+ */
 function touchActionFor(tool: Tool): string {
-  return tool === "draw" ? "touch-pinch-zoom" : "touch-auto";
+  return tool === "draw" ? "none" : "pan-x pan-y";
 }
 
 /**
@@ -84,6 +103,69 @@ function useNearby(
     };
   }, [ref, within, paint, keep]);
   return nearby;
+}
+
+/** How long a zoom has to hold still before the pages are painted again at the size it asks for. */
+const SETTLE = 150;
+
+/**
+ * Follows a value once it has stopped moving. A pinch changes the scale with every touch it
+ * reports, and each repainting is a whole page through the reader: between them the canvas
+ * already in hand is stretched, which is what the browser's own zoom would have done throughout.
+ */
+function useSettled<Value>(value: Value, ms: number): Value {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    if (value === settled) return;
+    const timer = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(timer);
+  }, [value, settled, ms]);
+  return settled;
+}
+
+/**
+ * The part of the page to paint sharply, in page points, once the whole of it no longer fits in
+ * one canvas. It follows the scrolling with slack around it, so an ordinary nudge is not a
+ * repaint, and it is given up entirely as soon as the whole page fits again.
+ */
+function useSharpPart(
+  ref: RefObject<Element | null>,
+  within: RefObject<Element | null>,
+  page: PageSize,
+  scale: number,
+  wanted: boolean,
+): Rect | null {
+  const [part, setPart] = useState<Rect | null>(null);
+  useEffect(() => {
+    const element = ref.current;
+    const box = within.current;
+    if (!wanted || !element || !box) {
+      setPart(null);
+      return;
+    }
+    let frame = 0;
+    const follow = () => {
+      frame = 0;
+      const visible = visiblePart(element.getBoundingClientRect(), box.getBoundingClientRect(), scale);
+      setPart(current => {
+        if (!visible) return null;
+        return current && stillFits(current, visible) ? current : withBand(visible, page);
+      });
+    };
+    /** Scrolling asks far more often than a page can be painted, so it asks once a frame. */
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(follow);
+    };
+    follow();
+    box.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      cancelAnimationFrame(frame);
+      box.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [ref, within, page, scale, wanted]);
+  return part;
 }
 
 /** Mobile Safari zooms the whole page in on any field smaller than this, and never zooms back out. */
@@ -140,14 +222,21 @@ function WritingField({ at, scale, size, value, onChange, onCommit, onCancel }: 
 export function PageView({ pdf, number, size, scale, pixelRatio, within, marks, tool, onCommand }: Props) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const sharpRef = useRef<HTMLCanvasElement>(null);
   const [rendered, setRendered] = useState<RenderedPage | null>(null);
+  const [sharp, setSharp] = useState<RenderedPart | null>(null);
   const [unpaintable, setUnpaintable] = useState(false);
   const [drawing, setDrawing] = useState<Drawing | null>(null);
   const [hovered, setHovered] = useState<Box | undefined>(undefined);
   const [writingAt, setWritingAt] = useState<Point | null>(null);
   const [words, setWords] = useState("");
   const nearby = useNearby(sheetRef, within, PAINT_WITHIN, KEEP_WITHIN);
-  const density = paintDensity(scale, pixelRatio, size);
+  /** Painting follows the zoom once it has come to rest; the layout follows it as it moves. */
+  const steady = useSettled(scale, SETTLE);
+  const density = paintDensity(steady, pixelRatio, size);
+  const painted = nearby && !unpaintable;
+  const part = useSharpPart(sheetRef, within, size, scale, painted && !wholePageIsSharp(steady, pixelRatio, size));
+  const partDensity = part ? paintDensity(steady, pixelRatio, part) : 0;
 
   useEffect(() => {
     // Letting go of the painted page is the point of the band: it is the larger of the two canvases.
@@ -170,15 +259,57 @@ export function PageView({ pdf, number, size, scale, pixelRatio, within, marks, 
     };
   }, [pdf, number, density, nearby]);
 
+  /** The part on screen, painted at the size it is being shown at rather than stretched up to it. */
   useEffect(() => {
+    if (!part) {
+      setSharp(null);
+      return;
+    }
+    let live = true;
+    // Whatever is already there stays until the new painting lands, rather than blanking.
+    pdf.renderPart(number, partDensity, part).then(
+      slice => {
+        if (live) setSharp(slice);
+      },
+      () => {
+        if (live) setSharp(null);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [pdf, number, part, partDensity]);
+
+  /**
+   * Before the browser paints, in both cases: a canvas is cleared the moment it is given a new
+   * size, and a frame of blank white between two paintings of a page is a frame too many.
+   */
+  useLayoutEffect(() => {
     const context = canvasRef.current?.getContext("2d");
     if (!context || !rendered) return;
-    paintPage(context, { image: rendered.image, pixelsPerPoint: density, marks: withDraft(marks, drawing, number), hovered });
-  }, [rendered, marks, drawing, hovered, density, number]);
+    paintPage(context, {
+      image: rendered.image,
+      pixelsPerPoint: rendered.pixelsPerPoint,
+      marks: withDraft(marks, drawing, number),
+      hovered,
+    });
+  }, [rendered, marks, drawing, hovered, number]);
+
+  useLayoutEffect(() => {
+    const context = sharpRef.current?.getContext("2d");
+    if (!context || !sharp) return;
+    paintPage(context, {
+      image: sharp.image,
+      pixelsPerPoint: sharp.pixelsPerPoint,
+      at: sharp.at,
+      marks: withDraft(marks, drawing, number),
+      hovered,
+    });
+  }, [sharp, marks, drawing, hovered, number]);
 
   useEffect(() => setHovered(undefined), [tool]);
 
-  const pointOf = (event: ReactPointerEvent<HTMLCanvasElement>): Point => {
+  const pointOf = (event: ReactPointerEvent<HTMLElement>): Point => {
     const bounds = event.currentTarget.getBoundingClientRect();
     return toPagePoint({ x: event.clientX - bounds.left, y: event.clientY - bounds.top }, scale);
   };
@@ -195,8 +326,14 @@ export function PageView({ pdf, number, size, scale, pixelRatio, within, marks, 
     abandonWriting();
   };
 
-  const startMark = (event: ReactPointerEvent<HTMLCanvasElement>): void => {
-    if (drawing) return;
+  const startMark = (event: ReactPointerEvent<HTMLElement>): void => {
+    // Anything with a say of its own — the caret being typed into — answers for itself.
+    if (event.target !== event.currentTarget) return;
+    if (drawing) {
+      // A second finger is the start of a pinch, and a pinch leaves no ink behind.
+      if (event.pointerId !== drawing.pointerId) setDrawing(null);
+      return;
+    }
     const at = pointOf(event);
     if (tool === "draw") {
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -213,7 +350,7 @@ export function PageView({ pdf, number, size, scale, pixelRatio, within, marks, 
     if (box) onCommand({ kind: "toggle", box });
   };
 
-  const trackPointer = (event: ReactPointerEvent<HTMLCanvasElement>): void => {
+  const trackPointer = (event: ReactPointerEvent<HTMLElement>): void => {
     const at = pointOf(event);
     if (drawing) {
       if (event.pointerId !== drawing.pointerId) return;
@@ -225,14 +362,14 @@ export function PageView({ pdf, number, size, scale, pixelRatio, within, marks, 
     }
   };
 
-  const finishStroke = (event: ReactPointerEvent<HTMLCanvasElement>): void => {
+  const finishStroke = (event: ReactPointerEvent<HTMLElement>): void => {
     if (!drawing || event.pointerId !== drawing.pointerId) return;
     onCommand({ kind: "draw", stroke: { page: number, points: drawing.points, width: PEN_WIDTH } });
     setDrawing(null);
   };
 
   /** A gesture the browser takes over — a system swipe, a call arriving — leaves no ink behind. */
-  const dropStroke = (event: ReactPointerEvent<HTMLCanvasElement>): void => {
+  const dropStroke = (event: ReactPointerEvent<HTMLElement>): void => {
     if (drawing && event.pointerId === drawing.pointerId) setDrawing(null);
   };
 
@@ -240,22 +377,39 @@ export function PageView({ pdf, number, size, scale, pixelRatio, within, marks, 
     <div
       ref={sheetRef}
       data-sheet={number}
-      className="relative bg-white shadow-2xl"
-      style={{ width: size.width * scale, height: size.height * scale }}
+      className={`relative bg-white shadow-2xl ${cursorFor(tool, hovered !== undefined)}`}
+      style={{ width: size.width * scale, height: size.height * scale, touchAction: touchActionFor(tool) }}
+      onPointerDown={startMark}
+      onPointerMove={trackPointer}
+      onPointerUp={finishStroke}
+      onPointerCancel={dropStroke}
+      onPointerLeave={() => setHovered(undefined)}
     >
-      {nearby && !unpaintable && (
+      {painted && rendered && (
+        // Sized by the painting it is holding, so a zoom stretches that one until the next lands.
         <canvas
           ref={canvasRef}
           data-page={number}
-          width={Math.ceil(size.width * density)}
-          height={Math.ceil(size.height * density)}
+          width={rendered.image.width}
+          height={rendered.image.height}
           style={{ width: size.width * scale, height: size.height * scale }}
-          className={`block ${touchActionFor(tool)} ${cursorFor(tool, hovered !== undefined)}`}
-          onPointerDown={startMark}
-          onPointerMove={trackPointer}
-          onPointerUp={finishStroke}
-          onPointerCancel={dropStroke}
-          onPointerLeave={() => setHovered(undefined)}
+          className="pointer-events-none block"
+        />
+      )}
+      {painted && sharp && (
+        // Over the whole page rather than instead of it, so panning has something to show at once.
+        <canvas
+          ref={sharpRef}
+          data-part={number}
+          width={sharp.image.width}
+          height={sharp.image.height}
+          style={{
+            left: sharp.at.x * scale,
+            top: sharp.at.y * scale,
+            width: (sharp.image.width / sharp.pixelsPerPoint) * scale,
+            height: (sharp.image.height / sharp.pixelsPerPoint) * scale,
+          }}
+          className="pointer-events-none absolute"
         />
       )}
       {nearby && unpaintable && (
