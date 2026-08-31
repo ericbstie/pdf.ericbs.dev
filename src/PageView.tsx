@@ -31,6 +31,42 @@ function cursorFor(tool: Tool, overBox: boolean): string {
   return overBox ? "cursor-pointer" : "cursor-default";
 }
 
+type WritingFieldProps = {
+  at: Point;
+  scale: number;
+  size: number;
+  value: string;
+  onChange: (words: string) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+};
+
+/** A caret sitting on the page itself, so what you type is where it will print. */
+function WritingField({ at, scale, size, value, onChange, onCommit, onCancel }: WritingFieldProps) {
+  const keys: Record<string, () => void> = { Enter: onCommit, Escape: onCancel };
+  return (
+    <input
+      data-testid="text-input"
+      aria-label="Write"
+      autoFocus
+      value={value}
+      onChange={event => onChange(keepEncodable(event.target.value))}
+      onKeyDown={event => keys[event.key]?.()}
+      onBlur={onCommit}
+      style={{
+        left: at.x * scale,
+        top: (at.y - size * 0.5) * scale,
+        fontSize: size * scale,
+        lineHeight: `${size * scale}px`,
+        height: size * scale,
+        width: `${Math.max(1, value.length)}ch`,
+        fontFamily: "Helvetica, Arial, sans-serif",
+      }}
+      className="absolute bg-transparent p-0 text-neutral-900 caret-neutral-900 outline-none"
+    />
+  );
+}
+
 export function PageView({ pdf, number, size, scale, pixelsPerPoint, marks, tool, onCommand }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [rendered, setRendered] = useState<RenderedPage | null>(null);
@@ -62,12 +98,16 @@ export function PageView({ pdf, number, size, scale, pixelsPerPoint, marks, tool
     return toPagePoint({ x: event.clientX - bounds.left, y: event.clientY - bounds.top }, scale);
   };
 
+  const abandonWriting = (): void => {
+    setWritingAt(null);
+    setWords("");
+  };
+
   const finishWriting = (): void => {
     if (writingAt && words.trim() !== "") {
       onCommand({ kind: "write", writing: { page: number, at: writingAt, text: words, size: TEXT_SIZE } });
     }
-    setWritingAt(null);
-    setWords("");
+    abandonWriting();
   };
 
   const startMark = (event: ReactPointerEvent<HTMLCanvasElement>): void => {
@@ -117,30 +157,14 @@ export function PageView({ pdf, number, size, scale, pixelsPerPoint, marks, tool
         onPointerLeave={() => setHovered(undefined)}
       />
       {writingAt && (
-        <input
-          data-testid="text-input"
-          aria-label="Write"
-          autoFocus
+        <WritingField
+          at={writingAt}
+          scale={scale}
+          size={TEXT_SIZE}
           value={words}
-          onChange={event => setWords(keepEncodable(event.target.value))}
-          onKeyDown={event => {
-            if (event.key === "Enter") finishWriting();
-            if (event.key === "Escape") {
-              setWritingAt(null);
-              setWords("");
-            }
-          }}
-          onBlur={finishWriting}
-          style={{
-            left: writingAt.x * scale,
-            top: (writingAt.y - TEXT_SIZE * 0.5) * scale,
-            fontSize: TEXT_SIZE * scale,
-            lineHeight: `${TEXT_SIZE * scale}px`,
-            height: TEXT_SIZE * scale,
-            width: `${Math.max(1, words.length)}ch`,
-            fontFamily: "Helvetica, Arial, sans-serif",
-          }}
-          className="absolute bg-transparent p-0 text-neutral-900 caret-neutral-900 outline-none"
+          onChange={setWords}
+          onCommit={finishWriting}
+          onCancel={abandonWriting}
         />
       )}
     </div>
