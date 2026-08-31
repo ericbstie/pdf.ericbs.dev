@@ -26,3 +26,12 @@ test("leaves the page alone when the pen is not chosen", async ({ page }) => {
   await dragAcrossBlankArea(page);
   expect(await darkPixels(page, BLANK)).toBe(0);
 });
+
+test("undo takes back the last stroke", async ({ page }) => {
+  await openPdf(page, await buildPlainPdf());
+  await page.locator('[data-tool="draw"]').click();
+  await dragAcrossBlankArea(page);
+  expect(await darkPixels(page, BLANK)).toBeGreaterThan(50);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => darkPixels(page, BLANK)).toBe(0);
+});

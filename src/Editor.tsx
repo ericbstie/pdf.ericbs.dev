@@ -35,6 +35,7 @@ export function Editor() {
   const [file, setFile] = useState<OpenFile | null>(null);
   const [commands, setCommands] = useState<Command[]>([]);
   const [tool, setTool] = useState<Tool>(null);
+  const [dragging, setDragging] = useState(false);
   const { ref, width } = useContainerWidth();
   const marks = useMemo(() => marksFrom(commands), [commands]);
 
@@ -68,9 +69,16 @@ export function Editor() {
     <div
       ref={ref}
       className="h-full overflow-auto"
-      onDragOver={event => event.preventDefault()}
+      onDragOver={event => {
+        event.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={event => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+      }}
       onDrop={event => {
         event.preventDefault();
+        setDragging(false);
         void takeFile(event.dataTransfer.files[0]);
       }}
     >
@@ -99,7 +107,11 @@ export function Editor() {
             className="sr-only"
             onChange={event => void takeFile(event.target.files?.[0])}
           />
-          <span className="grid size-48 place-items-center rounded-3xl border-2 border-dashed border-neutral-600 text-neutral-500 transition-colors hover:border-neutral-400 hover:text-neutral-300">
+          <span
+            className={`grid size-48 place-items-center rounded-3xl border-2 border-dashed transition-colors ${
+              dragging ? "border-neutral-200 text-neutral-100" : "border-neutral-600 text-neutral-500 hover:border-neutral-400 hover:text-neutral-300"
+            }`}
+          >
             <OpenIcon />
           </span>
         </label>
