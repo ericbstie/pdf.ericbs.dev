@@ -8,7 +8,7 @@ import { watchZoomGestures } from "./gestures";
 import { type OpenPdf, type OpenProblem, openPdf } from "./pdf";
 import { forgetSession, keepEdits, keepFile, loadSession, newFileId } from "./session";
 import { fitScale, widestPage } from "./viewport";
-import { anchorFor, clampZoom } from "./zoom";
+import { SCALE, atScale, clampZoom, cornerFor, heldAt } from "./zoom";
 
 /** The id is minted per opening, so it tells this file's pages from the last file's. */
 type OpenFile = { id: string; name: string; bytes: Uint8Array; pdf: OpenPdf };
@@ -19,7 +19,7 @@ const MAX_FILE_BYTES = 100 * 1024 * 1024;
 const PICKER_ID = "open-pdf";
 
 /** The space above the first page and between the pages, in page points, so it zooms with them. */
-const PAGE_GAP = 16;
+const PAGE_GAP = atScale(16);
 
 const TROUBLE: Record<OpenProblem, string> = {
   encrypted: "This PDF is locked with a password, so it cannot be opened here.",
@@ -98,35 +98,67 @@ export function Editor() {
   const [notice, setNotice] = useState<string | null>(null);
   /** The edits as they stood when they last went to disk as a PDF, so leaving knows what is at stake. */
   const [savedAt, setSavedAt] = useState<readonly Command[] | null>(null);
-  /** How much larger than its laid-out size the file is being read at. */
+  /** The zoom the pages have been painted for, which is the zoom the fingers have come to rest at. */
   const [zoom, setZoom] = useState(1);
   const picker = useRef<HTMLInputElement>(null);
   /** Dropped the moment a file is opened by hand, so a restore landing late gives way to it. */
   const restoreWanted = useRef(true);
   const pages = useRef<HTMLDivElement>(null);
-  /** The zoom as the fingers have left it, which is ahead of the zoom the pages are drawn at. */
+  /** The zoom the fingers have asked for, which they may still be moving. */
   const zoomed = useRef(1);
-  /** Where the pages' corner has to land once they are laid out again, or nothing if it may stay. */
-  const anchor = useRef<Point | null>(null);
+  /** The size a page is laid out at before any zoom, kept where a gesture can reach it. */
+  const fitted = useRef(1);
+  /** What the fingers came down on, in the pages' own points, until they let go of it. */
+  const held = useRef<Point | null>(null);
   const { ref, width } = useContainerWidth();
+  /** The size a page is laid out at with no zoom on it, which the window's width decides. */
+  const fit = file ? fitScale(width, widestPage(file.pdf.sizes)) : 1;
   const marks = useMemo(() => marksFrom(commands), [commands]);
   const undo = () => setCommands(withoutLast);
   const unsaved = commands.length > 0 && commands !== savedAt;
 
-  /** Zooms about a point on the screen, noting where the pages have to land to stay under it. */
+  /** Lays the pages out at the size the fingers are asking for, without waiting to be rendered. */
+  const showZoom = (): void => {
+    pages.current?.style.setProperty(SCALE, String(fitted.current * zoomed.current));
+  };
+
+  /**
+   * Zooms about a point on the screen, and keeps what was under it under it — laying the pages
+   * out and putting the scroll right here, inside the gesture, rather than leaving either to a
+   * render. Fingers report faster than a document of pages can be rendered again, and a correction
+   * worked out from where the pages were two touches ago would leave them growing from the corner.
+   *
+   * Nothing is painted yet: until the gesture is over, what is on screen is the last painting,
+   * stretched. Reading a page again is the better part of a second on a phone, and a hand resting
+   * mid-pinch is not an invitation to spend it.
+   */
   const zoomAbout = (factor: number, focus: Point): void => {
+    const stack = pages.current;
+    const scroller = ref.current;
+    if (!stack || !scroller) return;
+    const before = stack.getBoundingClientRect();
+    held.current ??= heldAt({ x: before.left, y: before.top }, focus, fitted.current * zoomed.current);
     const next = clampZoom(zoomed.current * factor);
     if (next === zoomed.current) return;
-    const corner = pages.current?.getBoundingClientRect();
-    if (corner) anchor.current = anchorFor({ x: corner.left, y: corner.top }, focus, next / zoomed.current);
     zoomed.current = next;
-    setZoom(next);
+    showZoom();
+    const wanted = cornerFor(focus, held.current, fitted.current * next);
+    const after = stack.getBoundingClientRect();
+    scroller.scrollLeft += after.left - wanted.x;
+    scroller.scrollTop += after.top - wanted.y;
+  };
+
+  /** The fingers are off the glass, so the pages are worth reading again at the size they now are. */
+  const zoomRested = (): void => {
+    held.current = null;
+    setZoom(zoomed.current);
   };
 
   /** A file arrives at the size it fits at, whatever the last one was being read at. */
   const resetZoom = (): void => {
+    held.current = null;
     zoomed.current = 1;
-    anchor.current = null;
+    showZoom();
     setZoom(1);
   };
 
@@ -207,23 +239,18 @@ export function Editor() {
     const scroller = ref.current;
     if (!scroller || !file) return;
     // What it is handed reads nothing but refs, so it stays right however often this rerenders.
-    return watchZoomGestures(scroller, zoomAbout);
+    return watchZoomGestures(scroller, { by: zoomAbout, over: zoomRested });
   }, [file, ref]);
 
   /**
-   * The pages are laid out at the new size, and then put back under the fingers: their corner is
-   * measured where it has landed and the scroll makes up the difference. Measuring beats working
-   * it out, since it is the browser that decides where a page sits when it fits without scrolling.
+   * After every render, whatever caused it: the pages take their size from a property rather than
+   * from what React last laid out, so a window resized mid-pinch is taken in without the fingers
+   * losing what they are holding.
    */
   useLayoutEffect(() => {
-    const wanted = anchor.current;
-    anchor.current = null;
-    const scroller = ref.current;
-    const corner = pages.current?.getBoundingClientRect();
-    if (!wanted || !scroller || !corner) return;
-    scroller.scrollLeft += corner.left - wanted.x;
-    scroller.scrollTop += corner.top - wanted.y;
-  }, [zoom, ref]);
+    fitted.current = fit;
+    showZoom();
+  });
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -235,7 +262,8 @@ export function Editor() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const scale = (file ? fitScale(width, widestPage(file.pdf.sizes)) : 1) * zoom;
+  /** What the pages are painted for. The size they are laid out at is the property's to say. */
+  const settled = fit * zoom;
   const pixelRatio = window.devicePixelRatio || 1;
 
   return (
@@ -279,7 +307,9 @@ export function Editor() {
           key={file.id}
           ref={pages}
           className="mx-auto flex w-max flex-col items-center pb-28"
-          style={{ gap: PAGE_GAP * scale, paddingTop: PAGE_GAP * scale }}
+          // The scroll is put where a gesture says; the browser keeping its own place as the pages
+          // grow would be a second hand on it, pulling the other way.
+          style={{ gap: PAGE_GAP, paddingTop: PAGE_GAP, overflowAnchor: "none" }}
         >
           {file.pdf.sizes.map((size, index) => (
             <PageView
@@ -287,7 +317,7 @@ export function Editor() {
               pdf={file.pdf}
               number={index + 1}
               size={size}
-              scale={scale}
+              settled={settled}
               pixelRatio={pixelRatio}
               within={ref}
               marks={marksOnPage(marks, index + 1)}

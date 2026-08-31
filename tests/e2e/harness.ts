@@ -122,21 +122,84 @@ export async function touchDrag(page: Page, from: Point, to: Point, steps = 10):
   await page.waitForTimeout(SETTLE);
 }
 
-/** Two fingers moving apart or together about a point, which is a pinch either way. */
-export async function pinch(page: Page, about: Point, from: number, to: number, steps = 10): Promise<void> {
+/**
+ * Two fingers moving apart or together about a point, which is a pinch either way. The moves go
+ * out without waiting to be handled, as a real pinch does: the browser coalesces what it cannot
+ * keep up with, and a page that only holds its aim when every touch is given time to be rendered
+ * does not hold it under a thumb and forefinger.
+ */
+export async function pinch(page: Page, about: Point, from: number, to: number, steps = 20): Promise<void> {
   const input = await page.context().newCDPSession(page);
   const fingers = (gap: number) => [
     { id: 0, x: about.x - gap / 2, y: about.y },
     { id: 1, x: about.x + gap / 2, y: about.y },
   ];
   await input.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: fingers(from) });
+  const moves = [];
   for (let step = 1; step <= steps; step += 1) {
     const gap = from + ((to - from) * step) / steps;
-    await input.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: fingers(gap) });
+    moves.push(input.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: fingers(gap) }));
   }
+  await Promise.all(moves);
   await input.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await input.detach();
   await page.waitForTimeout(SETTLE);
+}
+
+/** Which point of the page is under a place on the screen, in PDF user space. */
+export async function pdfPointAt(page: Page, at: Point, pageNumber = 1): Promise<Point> {
+  const box = (await pageCanvas(page, pageNumber).boundingBox())!;
+  const scale = box.width / PAGE_SIZE.width;
+  return { x: (at.x - box.x) / scale, y: PAGE_SIZE.height - (at.y - box.y) / scale };
+}
+
+/**
+ * A pinch that pauses with the fingers still down, as a hand does halfway through one. Nothing
+ * about a hand resting mid-gesture says it has finished.
+ */
+export async function pinchAndHold(page: Page, about: Point, stillDown?: () => Promise<void>): Promise<void> {
+  const input = await page.context().newCDPSession(page);
+  const fingers = (gap: number) => [
+    { id: 0, x: about.x - gap / 2, y: about.y },
+    { id: 1, x: about.x + gap / 2, y: about.y },
+  ];
+  let gap = 90;
+  await input.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: fingers(gap) });
+  for (let spell = 0; spell < 3; spell += 1) {
+    const moves = [];
+    for (let step = 0; step < 6; step += 1) {
+      gap += 14;
+      moves.push(input.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: fingers(gap) }));
+    }
+    await Promise.all(moves);
+    await page.waitForTimeout(SETTLE * 2);
+  }
+  await stillDown?.();
+  await input.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await input.detach();
+  await page.waitForTimeout(SETTLE);
+}
+
+/**
+ * How many pages the reader has painted since this was last asked, counted by the canvases it
+ * makes itself — one per painting, and none of them ever reaches the document.
+ */
+export async function countPaintings(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const counter = window as unknown as { __painted?: number };
+    if (counter.__painted === undefined) {
+      const make = document.createElement.bind(document);
+      counter.__painted = 0;
+      document.createElement = ((tag: string, ...rest: unknown[]) => {
+        if (String(tag).toLowerCase() === "canvas") counter.__painted! += 1;
+        return make(tag as never, ...(rest as []));
+      }) as typeof document.createElement;
+      return 0;
+    }
+    const painted = counter.__painted;
+    counter.__painted = 0;
+    return painted;
+  });
 }
 
 /** Ctrl and the wheel, which is also what a touchpad pinch arrives as. */

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ZOOM, anchorFor, clampZoom, midpointOf, spreadOf, wheelFactor } from "./zoom";
+import { ZOOM, atScale, clampZoom, cornerFor, heldAt, midpointOf, spreadOf, wheelFactor } from "./zoom";
 
 test("zoom stays within what the pages are worth reading at", () => {
   expect(clampZoom(100)).toBe(ZOOM.most);
@@ -38,17 +38,29 @@ test("the fingers are read as how far apart they are and what they are around", 
   expect(midpointOf(one, other)).toEqual({ x: 115, y: 220 });
 });
 
+test("what the fingers are over is read off the pages as they are drawn", () => {
+  expect(heldAt({ x: 100, y: 50 }, { x: 400, y: 350 }, 2)).toEqual({ x: 150, y: 150 });
+});
+
 test("the pages back away from the fingers in proportion", () => {
-  expect(anchorFor({ x: 0, y: 0 }, { x: 100, y: 50 }, 2)).toEqual({ x: -100, y: -50 });
+  const held = heldAt({ x: 0, y: 0 }, { x: 100, y: 50 }, 1);
+  expect(cornerFor({ x: 100, y: 50 }, held, 2)).toEqual({ x: -100, y: -50 });
 });
 
 test("a point already in the corner keeps the corner where it is", () => {
-  expect(anchorFor({ x: 40, y: 60 }, { x: 40, y: 60 }, 3)).toEqual({ x: 40, y: 60 });
+  const held = heldAt({ x: 40, y: 60 }, { x: 40, y: 60 }, 1);
+  expect(cornerFor({ x: 40, y: 60 }, held, 3)).toEqual({ x: 40, y: 60 });
 });
 
-test("zooming back out puts the corner back where it started", () => {
+test("the corner is aimed at from the size the pages are, not from where they last were", () => {
   const corner = { x: -240, y: -80 };
   const focus = { x: 300, y: 400 };
-  const inwards = anchorFor(corner, focus, 2.5);
-  expect(anchorFor(inwards, focus, 1 / 2.5)).toEqual(corner);
+  const held = heldAt(corner, focus, 1.5);
+  // Whatever happened at the sizes in between, the size it lands at is the one that decides.
+  expect(cornerFor(focus, held, 3.75)).toEqual(cornerFor(focus, heldAt(cornerFor(focus, held, 2), focus, 2), 3.75));
+  expect(cornerFor(focus, held, 1.5)).toEqual(corner);
+});
+
+test("a length on the page is written so the browser scales it with them", () => {
+  expect(atScale(612)).toBe("calc(var(--scale, 1) * 612px)");
 });

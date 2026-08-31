@@ -3,10 +3,13 @@ import { FLAT_BOXES, buildFlatCheckboxPdf, buildPlainPdf } from "../fixtures";
 import {
   browserZoom,
   centerOf,
+  countPaintings,
   darkPixels,
   openPdf,
   pageCanvas,
+  pdfPointAt,
   pinch,
+  pinchAndHold,
   sharpPart,
   sharpness,
   touchDrag,
@@ -137,6 +140,36 @@ test("a pinch with the pen out zooms and leaves no ink behind", async ({ page })
   expect(await widthOnScreen(pageCanvas(page))).toBeGreaterThan(fitted * 1.5);
   expect(await darkPixels(page, BLANK)).toBe(0);
   await expect(page.locator('[data-action="undo"]')).toBeDisabled();
+});
+
+test("a pinch zooms about the fingers, not the corner of the screen", async ({ page }) => {
+  await openPdf(page, await buildPlainPdf(3));
+  const fingers = { x: 195, y: 380 };
+  const under = await pdfPointAt(page, fingers);
+
+  await pinch(page, fingers, 80, 320);
+
+  // Touches come faster than a document of pages can be rendered again, and every one has to count.
+  const landed = await viewportPoint(page, under);
+  expect(Math.abs(landed.x - fingers.x)).toBeLessThan(12);
+  expect(Math.abs(landed.y - fingers.y)).toBeLessThan(12);
+});
+
+test("nothing is read again while the fingers are still on the page", async ({ page }) => {
+  await openPdf(page, await buildPlainPdf(3));
+  await countPaintings(page);
+  let whileHeld = -1;
+
+  // A hand resting halfway through a pinch has not finished pinching, and reading a page again
+  // is the better part of a second: doing it under the fingers is what makes a pinch stutter.
+  await pinchAndHold(page, { x: 195, y: 380 }, async () => {
+    whileHeld = await countPaintings(page);
+  });
+
+  expect(whileHeld).toBe(0);
+  // Once they lift, the pages are read again at the size they have arrived at.
+  await expect.poll(() => countPaintings(page)).toBeGreaterThan(0);
+  await expect.poll(() => sharpness(pageCanvas(page))).toBeGreaterThanOrEqual(1);
 });
 
 test("a pinched page is painted for the screen's own pixels, not just its points", async ({ page }) => {

@@ -37,11 +37,30 @@ export function midpointOf(one: Touching, other: Touching): Point {
   return { x: (one.clientX + other.clientX) / 2, y: (one.clientY + other.clientY) / 2 };
 }
 
+/** Which point of the pages a place on the screen is over, in the pages' own points. */
+export function heldAt(corner: Point, focus: Point, scale: number): Point {
+  return { x: (focus.x - corner.x) / scale, y: (focus.y - corner.y) / scale };
+}
+
 /**
- * Where the pages' top-left corner has to end up for whatever is under the fingers to stay under
- * them. Everything between that corner and the fingers grows by the same ratio the pages do, so
- * the corner backs away from them in proportion.
+ * Where the pages' top-left corner has to be for the point the fingers came down on to be under
+ * them, at the size the pages are now. Aimed at afresh on every touch rather than nudged along
+ * from the last one: a nudge that the scroll had no room for is a nudge lost, and the pages spend
+ * the beginning of a pinch with no room to give — a page smaller than the window does not scroll.
  */
-export function anchorFor(corner: Point, focus: Point, ratio: number): Point {
-  return { x: focus.x - (focus.x - corner.x) * ratio, y: focus.y - (focus.y - corner.y) * ratio };
+export function cornerFor(focus: Point, held: Point, scale: number): Point {
+  return { x: focus.x - held.x * scale, y: focus.y - held.y * scale };
+}
+
+/**
+ * The size the pages are laid out at, kept in the stylesheet rather than in React. A pinch reports
+ * touches faster than a document of pages can be rendered again, and every one of them has to
+ * land: written here, the browser resizes every page from one property, and what the fingers ask
+ * for is on screen within the event that asked for it.
+ */
+export const SCALE = "--scale";
+
+/** A length on the page, in the pages' own points, written so it grows and shrinks with them. */
+export function atScale(points: number): string {
+  return `calc(var(${SCALE}, 1) * ${points}px)`;
 }

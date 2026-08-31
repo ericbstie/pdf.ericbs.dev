@@ -21,6 +21,7 @@ import {
   wholePageIsSharp,
   withBand,
 } from "./viewport";
+import { atScale } from "./zoom";
 
 const PEN_WIDTH = 2;
 const TEXT_SIZE = 14;
@@ -36,7 +37,12 @@ type Props = {
   pdf: OpenPdf;
   number: number;
   size: PageSize;
-  scale: number;
+  /**
+   * The size the page is painted for, in pixels per point. It is the size the page is laid out at
+   * too, except while a pinch is moving: the layout follows the fingers through a property on the
+   * pages, and the painting catches up when they stop.
+   */
+  settled: number;
   pixelRatio: number;
   /** The box the pages scroll inside, which decides when a page is close enough to be worth painting. */
   within: RefObject<Element | null>;
@@ -105,23 +111,8 @@ function useNearby(
   return nearby;
 }
 
-/** How long a zoom has to hold still before the pages are painted again at the size it asks for. */
-const SETTLE = 150;
-
-/**
- * Follows a value once it has stopped moving. A pinch changes the scale with every touch it
- * reports, and each repainting is a whole page through the reader: between them the canvas
- * already in hand is stretched, which is what the browser's own zoom would have done throughout.
- */
-function useSettled<Value>(value: Value, ms: number): Value {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    if (value === settled) return;
-    const timer = setTimeout(() => setSettled(value), ms);
-    return () => clearTimeout(timer);
-  }, [value, settled, ms]);
-  return settled;
-}
+/** A page is laid out to a fraction of a pixel, so its size never lands exactly on the painted one. */
+const STEADY_ENOUGH = 0.001;
 
 /**
  * The part of the page to paint sharply, in page points, once the whole of it no longer fits in
@@ -132,7 +123,7 @@ function useSharpPart(
   ref: RefObject<Element | null>,
   within: RefObject<Element | null>,
   page: PageSize,
-  scale: number,
+  settled: number,
   wanted: boolean,
 ): Rect | null {
   const [part, setPart] = useState<Rect | null>(null);
@@ -146,7 +137,11 @@ function useSharpPart(
     let frame = 0;
     const follow = () => {
       frame = 0;
-      const visible = visiblePart(element.getBoundingClientRect(), box.getBoundingClientRect(), scale);
+      const sheet = element.getBoundingClientRect();
+      // The page is its own measure of how big it is being drawn, and while a pinch is still
+      // moving it is bigger than what has been painted: what is in hand stretches until it stops.
+      if (Math.abs(sheet.width / page.width - settled) > STEADY_ENOUGH) return;
+      const visible = visiblePart(sheet, box.getBoundingClientRect(), settled);
       setPart(current => {
         if (!visible) return null;
         return current && stillFits(current, visible) ? current : withBand(visible, page);
@@ -164,7 +159,7 @@ function useSharpPart(
       box.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
     };
-  }, [ref, within, page, scale, wanted]);
+  }, [ref, within, page, settled, wanted]);
   return part;
 }
 
@@ -173,7 +168,8 @@ const NO_ZOOM_SIZE = 16;
 
 type WritingFieldProps = {
   at: Point;
-  scale: number;
+  /** The size the page is painted at: a caret typed into mid-pinch catches up when it ends. */
+  settled: number;
   size: number;
   value: string;
   onChange: (words: string) => void;
@@ -182,8 +178,8 @@ type WritingFieldProps = {
 };
 
 /** A caret sitting on the page itself, so what you type is where it will print. */
-function WritingField({ at, scale, size, value, onChange, onCommit, onCancel }: WritingFieldProps) {
-  const drawn = size * scale;
+function WritingField({ at, settled, size, value, onChange, onCommit, onCancel }: WritingFieldProps) {
+  const drawn = size * settled;
   const typed = Math.max(drawn, NO_ZOOM_SIZE);
   return (
     <input
@@ -203,8 +199,9 @@ function WritingField({ at, scale, size, value, onChange, onCommit, onCancel }: 
       }}
       onBlur={onCommit}
       style={{
-        left: at.x * scale,
-        top: (at.y - size * 0.5) * scale,
+        // Placed by the property the pages are sized from, so a pinch carries the caret with them.
+        left: atScale(at.x),
+        top: atScale(at.y - size * 0.5),
         fontSize: typed,
         lineHeight: `${typed}px`,
         height: typed,
@@ -219,7 +216,7 @@ function WritingField({ at, scale, size, value, onChange, onCommit, onCancel }: 
   );
 }
 
-export function PageView({ pdf, number, size, scale, pixelRatio, within, marks, tool, onCommand }: Props) {
+export function PageView({ pdf, number, size, settled, pixelRatio, within, marks, tool, onCommand }: Props) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sharpRef = useRef<HTMLCanvasElement>(null);
@@ -231,12 +228,10 @@ export function PageView({ pdf, number, size, scale, pixelRatio, within, marks, 
   const [writingAt, setWritingAt] = useState<Point | null>(null);
   const [words, setWords] = useState("");
   const nearby = useNearby(sheetRef, within, PAINT_WITHIN, KEEP_WITHIN);
-  /** Painting follows the zoom once it has come to rest; the layout follows it as it moves. */
-  const steady = useSettled(scale, SETTLE);
-  const density = paintDensity(steady, pixelRatio, size);
+  const density = paintDensity(settled, pixelRatio, size);
   const painted = nearby && !unpaintable;
-  const part = useSharpPart(sheetRef, within, size, scale, painted && !wholePageIsSharp(steady, pixelRatio, size));
-  const partDensity = part ? paintDensity(steady, pixelRatio, part) : 0;
+  const part = useSharpPart(sheetRef, within, size, settled, painted && !wholePageIsSharp(settled, pixelRatio, size));
+  const partDensity = part ? paintDensity(settled, pixelRatio, part) : 0;
 
   useEffect(() => {
     // Letting go of the painted page is the point of the band: it is the larger of the two canvases.
@@ -311,7 +306,9 @@ export function PageView({ pdf, number, size, scale, pixelRatio, within, marks, 
 
   const pointOf = (event: ReactPointerEvent<HTMLElement>): Point => {
     const bounds = event.currentTarget.getBoundingClientRect();
-    return toPagePoint({ x: event.clientX - bounds.left, y: event.clientY - bounds.top }, scale);
+    // Taken from the page as it is drawn this moment, which a pinch may have moved since the paint.
+    const drawnAt = bounds.width / size.width;
+    return toPagePoint({ x: event.clientX - bounds.left, y: event.clientY - bounds.top }, drawnAt);
   };
 
   const abandonWriting = (): void => {
@@ -378,7 +375,7 @@ export function PageView({ pdf, number, size, scale, pixelRatio, within, marks, 
       ref={sheetRef}
       data-sheet={number}
       className={`relative bg-white shadow-2xl ${cursorFor(tool, hovered !== undefined)}`}
-      style={{ width: size.width * scale, height: size.height * scale, touchAction: touchActionFor(tool) }}
+      style={{ width: atScale(size.width), height: atScale(size.height), touchAction: touchActionFor(tool) }}
       onPointerDown={startMark}
       onPointerMove={trackPointer}
       onPointerUp={finishStroke}
@@ -392,7 +389,7 @@ export function PageView({ pdf, number, size, scale, pixelRatio, within, marks, 
           data-page={number}
           width={rendered.image.width}
           height={rendered.image.height}
-          style={{ width: size.width * scale, height: size.height * scale }}
+          style={{ width: atScale(size.width), height: atScale(size.height) }}
           className="pointer-events-none block"
         />
       )}
@@ -404,10 +401,10 @@ export function PageView({ pdf, number, size, scale, pixelRatio, within, marks, 
           width={sharp.image.width}
           height={sharp.image.height}
           style={{
-            left: sharp.at.x * scale,
-            top: sharp.at.y * scale,
-            width: (sharp.image.width / sharp.pixelsPerPoint) * scale,
-            height: (sharp.image.height / sharp.pixelsPerPoint) * scale,
+            left: atScale(sharp.at.x),
+            top: atScale(sharp.at.y),
+            width: atScale(sharp.image.width / sharp.pixelsPerPoint),
+            height: atScale(sharp.image.height / sharp.pixelsPerPoint),
           }}
           className="pointer-events-none absolute"
         />
@@ -420,7 +417,7 @@ export function PageView({ pdf, number, size, scale, pixelRatio, within, marks, 
       {writingAt && (
         <WritingField
           at={writingAt}
-          scale={scale}
+          settled={settled}
           size={TEXT_SIZE}
           value={words}
           onChange={setWords}
