@@ -32,10 +32,14 @@ async function startPage(): Promise<{ doc: PDFDocument; page: ReturnType<PDFDocu
   return { doc, page };
 }
 
-export async function buildPlainPdf(): Promise<Uint8Array> {
+export async function buildPlainPdf(pageCount = 1): Promise<Uint8Array> {
   const { doc, page } = await startPage();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   page.drawText("Rental agreement", { x: 72, y: 740, size: 18, font });
+  for (let extra = 1; extra < pageCount; extra += 1) {
+    const next = doc.addPage([PAGE_SIZE.width, PAGE_SIZE.height]);
+    next.drawText(`Schedule ${extra}`, { x: 72, y: 740, size: 18, font });
+  }
   return doc.save();
 }
 
