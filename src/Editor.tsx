@@ -36,7 +36,7 @@ function useContainerWidth() {
 }
 
 /** Puts back what the last visit left, and lets go of a kept file that no longer opens. */
-async function reopenSession(): Promise<{ file: OpenFile; commands: Command[] } | null> {
+async function reopenSession(): Promise<{ file: OpenFile; commands: Command[]; saved: boolean } | null> {
   const session = await loadSession();
   if (!session) return null;
   const opened = await openPdf(Uint8Array.from(session.file.bytes));
@@ -44,7 +44,7 @@ async function reopenSession(): Promise<{ file: OpenFile; commands: Command[] } 
     await forgetSession();
     return null;
   }
-  return { file: { ...session.file, pdf: opened.pdf }, commands: session.commands };
+  return { file: { ...session.file, pdf: opened.pdf }, commands: session.commands, saved: session.saved };
 }
 
 /** Reading a chosen file can still fail: it may have been moved or unplugged since it was picked. */
@@ -91,10 +91,11 @@ export function Editor() {
   const [tool, setTool] = useState<Tool>(null);
   const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [restoring, setRestoring] = useState(true);
   /** The edits as they stood when they last went to disk as a PDF, so leaving knows what is at stake. */
   const [savedAt, setSavedAt] = useState<readonly Command[] | null>(null);
   const picker = useRef<HTMLInputElement>(null);
+  /** Dropped the moment a file is opened by hand, so a restore landing late gives way to it. */
+  const restoreWanted = useRef(true);
   const { ref, width } = useContainerWidth();
   const marks = useMemo(() => marksFrom(commands), [commands]);
   const undo = () => setCommands(withoutLast);
@@ -108,11 +109,27 @@ export function Editor() {
     const opened = await openPdf(Uint8Array.from(bytes));
     if (!opened.ok) return setNotice(TROUBLE[opened.problem]);
     const kept = { id: newFileId(), name: chosen.name, bytes };
-    const survives = await keepFile(kept);
-    setNotice(survives ? null : "This browser will not keep a copy, so a reload would lose any edits.");
+    // Everything below runs without awaiting, so a restore cannot land between giving way and showing.
+    restoreWanted.current = false;
+    setNotice(null);
     setTool(null);
     setCommands([]);
+    setSavedAt(null);
     setFile({ ...kept, pdf: opened.pdf });
+    // The pages are on screen by now; a copy of a hundred megabytes need not hold them up.
+    if (!(await keepFile(kept))) setNotice("This browser will not keep a copy, so a reload would lose any edits.");
+  };
+
+  /** Puts the editor back to holding nothing, on disk as well as on screen. */
+  const closeFile = async (): Promise<void> => {
+    if (unsaved && !window.confirm("Close this PDF? Edits you have not downloaded will be lost.")) return;
+    restoreWanted.current = false;
+    setFile(null);
+    setCommands([]);
+    setSavedAt(null);
+    setTool(null);
+    setNotice(null);
+    await forgetSession();
   };
 
   const save = async (): Promise<void> => {
@@ -128,12 +145,10 @@ export function Editor() {
   useEffect(() => {
     let live = true;
     reopenSession().then(restored => {
-      if (!live) return;
-      if (restored) {
-        setFile(restored.file);
-        setCommands(restored.commands);
-      }
-      setRestoring(false);
+      if (!live || !restored || !restoreWanted.current) return;
+      setFile(restored.file);
+      setCommands(restored.commands);
+      if (restored.saved) setSavedAt(restored.commands);
     });
     return () => {
       live = false;
@@ -141,8 +156,8 @@ export function Editor() {
   }, []);
 
   useEffect(() => {
-    if (file) void keepEdits(file.id, commands);
-  }, [file, commands]);
+    if (file) void keepEdits(file.id, commands, commands === savedAt);
+  }, [file, commands, savedAt]);
 
   /** The browser writes the wording; all a page may do is say that leaving would cost something. */
   useEffect(() => {
@@ -219,7 +234,7 @@ export function Editor() {
           ))}
         </div>
       )}
-      {!file && !restoring && (
+      {!file && (
         <label htmlFor={PICKER_ID} className="grid h-full cursor-pointer place-items-center">
           <span
             className={`grid size-48 place-items-center rounded-3xl border-2 border-dashed transition-colors ${
@@ -235,6 +250,7 @@ export function Editor() {
           tool={tool}
           onTool={setTool}
           onOpen={() => picker.current?.click()}
+          onClose={() => void closeFile()}
           onUndo={undo}
           canUndo={commands.length > 0}
           onSave={() => void save()}

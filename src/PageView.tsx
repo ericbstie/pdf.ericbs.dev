@@ -9,8 +9,9 @@ import { boxAt, paintDensity, reachFor, toPagePoint } from "./viewport";
 const PEN_WIDTH = 2;
 const TEXT_SIZE = 14;
 
-/** How far ahead of the viewport a page starts painting itself, as a share of the screen. */
-const PAINT_AHEAD = "150%";
+/** How close a page comes before it is painted, and how much further it goes before it is let go. */
+const PAINT_WITHIN = "150%";
+const KEEP_WITHIN = "300%";
 
 /** The finger or cursor a stroke belongs to, so a second one cannot join in halfway through. */
 type Drawing = { pointerId: number; points: Point[] };
@@ -45,25 +46,44 @@ function touchActionFor(tool: Tool): string {
 }
 
 /**
- * True once the element has come within reach of the scrolling box, and true from then on.
+ * Whether the page is close enough to the scrolling box to be worth a canvas. Two bands rather
+ * than one, so a page painted on the way in is held until it is well clear and scrolling back and
+ * forth across the edge does not repaint it each time.
+ *
  * The box has to be named: a margin only ever widens the observer's own root, so an element
  * clipped away by some scroller in between is out of sight however generous the margin is.
  */
-function useApproached(ref: RefObject<Element | null>, within: RefObject<Element | null>, margin: string): boolean {
-  const [approached, setApproached] = useState(false);
+function useNearby(
+  ref: RefObject<Element | null>,
+  within: RefObject<Element | null>,
+  paint: string,
+  keep: string,
+): boolean {
+  const [nearby, setNearby] = useState(false);
   useEffect(() => {
     const element = ref.current;
-    if (!element || approached) return;
-    const observer = new IntersectionObserver(
+    if (!element) return;
+    const root = within.current;
+    const arriving = new IntersectionObserver(
       entries => {
-        if (entries.some(entry => entry.isIntersecting)) setApproached(true);
+        if (entries.some(entry => entry.isIntersecting)) setNearby(true);
       },
-      { root: within.current, rootMargin: margin },
+      { root, rootMargin: paint },
     );
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [ref, within, margin, approached]);
-  return approached;
+    const leaving = new IntersectionObserver(
+      entries => {
+        if (entries.every(entry => !entry.isIntersecting)) setNearby(false);
+      },
+      { root, rootMargin: keep },
+    );
+    arriving.observe(element);
+    leaving.observe(element);
+    return () => {
+      arriving.disconnect();
+      leaving.disconnect();
+    };
+  }, [ref, within, paint, keep]);
+  return nearby;
 }
 
 /** Mobile Safari zooms the whole page in on any field smaller than this, and never zooms back out. */
@@ -126,11 +146,15 @@ export function PageView({ pdf, number, size, scale, pixelRatio, within, marks, 
   const [hovered, setHovered] = useState<Box | undefined>(undefined);
   const [writingAt, setWritingAt] = useState<Point | null>(null);
   const [words, setWords] = useState("");
-  const approached = useApproached(sheetRef, within, PAINT_AHEAD);
+  const nearby = useNearby(sheetRef, within, PAINT_WITHIN, KEEP_WITHIN);
   const density = paintDensity(scale, pixelRatio, size);
 
   useEffect(() => {
-    if (!approached) return;
+    // Letting go of the painted page is the point of the band: it is the larger of the two canvases.
+    if (!nearby) {
+      setRendered(null);
+      return;
+    }
     let live = true;
     setUnpaintable(false);
     pdf.render(number, density).then(
@@ -144,7 +168,7 @@ export function PageView({ pdf, number, size, scale, pixelRatio, within, marks, 
     return () => {
       live = false;
     };
-  }, [pdf, number, density, approached]);
+  }, [pdf, number, density, nearby]);
 
   useEffect(() => {
     const context = canvasRef.current?.getContext("2d");
@@ -215,10 +239,11 @@ export function PageView({ pdf, number, size, scale, pixelRatio, within, marks, 
   return (
     <div
       ref={sheetRef}
+      data-sheet={number}
       className="relative bg-white shadow-2xl"
       style={{ width: size.width * scale, height: size.height * scale }}
     >
-      {approached && !unpaintable && (
+      {nearby && !unpaintable && (
         <canvas
           ref={canvasRef}
           data-page={number}
@@ -233,7 +258,7 @@ export function PageView({ pdf, number, size, scale, pixelRatio, within, marks, 
           onPointerLeave={() => setHovered(undefined)}
         />
       )}
-      {unpaintable && (
+      {nearby && unpaintable && (
         <p className="grid h-full place-items-center p-6 text-center text-sm text-neutral-500">
           This page could not be drawn.
         </p>
