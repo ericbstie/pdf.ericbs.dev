@@ -53,12 +53,18 @@ test("keeps every edit in the saved file", async ({ page }) => {
 
 test("saves a ticked form checkbox as a field value", async ({ page }) => {
   await openPdf(page, await buildFormCheckboxPdf());
+  const unticked = await darkPixels(page, FORM_BOXES[0]!);
   await tick(page, FORM_BOXES[0]!);
   const saved = await savePdf(page);
+
   expect(await readCheckboxStates(saved)).toEqual(
     new Map([
       [FORM_BOXES[0]!.name, true],
       [FORM_BOXES[1]!.name, false],
     ]),
   );
+
+  await openPdf(page, saved, "saved.pdf");
+  expect(await darkPixels(page, FORM_BOXES[0]!)).toBeGreaterThan(unticked + 20);
+  expect(await darkPixels(page, FORM_BOXES[1]!)).toBe(unticked);
 });
