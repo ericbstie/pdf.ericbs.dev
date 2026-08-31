@@ -40,10 +40,6 @@ export function marksOnPage(marks: Marks, pageNumber: number): Marks {
   return { strokes: here(marks.strokes), writings: here(marks.writings), ticks: here(marks.ticks) };
 }
 
-export function isTicked(marks: Marks, boxId: string): boolean {
-  return marks.ticks.some(box => box.id === boxId);
-}
-
 export function withoutLast(commands: readonly Command[]): Command[] {
   return commands.slice(0, -1);
 }

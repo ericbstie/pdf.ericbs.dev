@@ -43,15 +43,15 @@ async function widgetBoxes(page: PDFPageProxy, pageHeight: number): Promise<Box[
     }));
 }
 
-function printedBoxes(image: HTMLCanvasElement, page: RenderTarget): Box[] {
-  const pixels = image.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, image.width, image.height);
-  const size = { minPixels: BOX_POINTS.smallest * page.pixelsPerPoint, maxPixels: BOX_POINTS.largest * page.pixelsPerPoint };
-  return findCheckboxes(toBitmap(pixels), size)
-    .map(found => toPagePoints(found, page.pixelsPerPoint))
-    .map(rect => ({ page: page.number, id: `drawn:${page.number}:${Math.round(rect.x)},${Math.round(rect.y)}`, rect }));
-}
-
 type RenderTarget = { number: number; pixelsPerPoint: number };
+
+function printedBoxes(image: HTMLCanvasElement, target: RenderTarget): Box[] {
+  const pixels = image.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, image.width, image.height);
+  const size = { minPixels: BOX_POINTS.smallest * target.pixelsPerPoint, maxPixels: BOX_POINTS.largest * target.pixelsPerPoint };
+  return findCheckboxes(toBitmap(pixels), size)
+    .map(found => toPagePoints(found, target.pixelsPerPoint))
+    .map(rect => ({ page: target.number, id: `drawn:${target.number}:${Math.round(rect.x)},${Math.round(rect.y)}`, rect }));
+}
 
 async function paintToCanvas(page: PDFPageProxy, pixelsPerPoint: number): Promise<HTMLCanvasElement> {
   const viewport = page.getViewport({ scale: pixelsPerPoint });

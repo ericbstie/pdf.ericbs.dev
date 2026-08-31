@@ -16,7 +16,7 @@ function strokeInk(context: CanvasRenderingContext2D, stroke: Stroke): void {
   context.stroke(new Path2D(polylinePath(stroke.points)));
 }
 
-export function writeInk(context: CanvasRenderingContext2D, writing: Writing): void {
+function writeInk(context: CanvasRenderingContext2D, writing: Writing): void {
   context.font = `${writing.size}px Helvetica, Arial, sans-serif`;
   context.textBaseline = "alphabetic";
   context.fillText(writing.text, writing.at.x, writing.at.y + writing.size * CAP_MIDDLE);

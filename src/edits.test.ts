@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type Box, type Command, isTicked, marksFrom, marksOnPage, withoutLast } from "./edits";
+import { type Box, type Command, marksFrom, marksOnPage, withoutLast } from "./edits";
 
 const box = (id: string): Box => ({ page: 1, id, rect: { x: 0, y: 0, width: 10, height: 10 } });
 const toggle = (id: string): Command => ({ kind: "toggle", box: box(id) });
@@ -14,7 +14,7 @@ describe("marksFrom", () => {
   });
 
   test("a single toggle ticks the box", () => {
-    expect(isTicked(marksFrom([toggle("a")]), "a")).toBe(true);
+    expect(marksFrom([toggle("a")]).ticks.map(ticked => ticked.id)).toEqual(["a"]);
   });
 
   test("a second toggle unticks it", () => {
