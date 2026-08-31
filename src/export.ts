@@ -1,4 +1,4 @@
-import { LineCapStyle, LineJoinStyle, PDFDocument, type PDFFont, type PDFForm, type PDFPage, StandardFonts, rgb } from "pdf-lib";
+import { LineCapStyle, PDFDocument, type PDFFont, type PDFForm, type PDFPage, StandardFonts, rgb } from "pdf-lib";
 import type { Box, Marks, Stroke, Writing } from "./edits";
 import { checkPath, checkWidth, polylinePath } from "./paths";
 import { keepEncodable } from "./text";
@@ -38,7 +38,6 @@ function stampTick(page: PDFPage, box: Box): void {
     borderColor: INK,
     borderWidth: checkWidth(box.rect),
     borderLineCap: LineCapStyle.Round,
-    borderLineJoin: LineJoinStyle.Round,
   });
 }
 

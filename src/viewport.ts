@@ -1,4 +1,4 @@
-import type { Box, Point } from "./edits";
+import type { Box, Point, Rect } from "./edits";
 
 /** Widest a page is drawn, in CSS pixels per point, so a page never outgrows a comfortable reading size. */
 const MAX_SCALE = 1.5;
@@ -22,5 +22,14 @@ export function boxAt(boxes: readonly Box[], point: Point): Box | undefined {
       point.x <= rect.x + rect.width + SLOP &&
       point.y >= rect.y - SLOP &&
       point.y <= rect.y + rect.height + SLOP,
+  );
+}
+
+export function overlaps(one: Rect, other: Rect): boolean {
+  return (
+    one.x < other.x + other.width &&
+    other.x < one.x + one.width &&
+    one.y < other.y + other.height &&
+    other.y < one.y + one.height
   );
 }

@@ -9,7 +9,7 @@ function toPlacedText(item: { str: string; transform: number[] }, page: number):
 }
 
 async function readPagesOf(pdf: Uint8Array) {
-  const doc = await pdfjs.getDocument({ data: Uint8Array.from(pdf), isEvalSupported: false }).promise;
+  const doc = await pdfjs.getDocument({ data: Uint8Array.from(pdf) }).promise;
   const numbers = Array.from({ length: doc.numPages }, (_, i) => i + 1);
   return Promise.all(numbers.map(n => doc.getPage(n)));
 }

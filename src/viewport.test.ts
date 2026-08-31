@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Box } from "./edits";
-import { boxAt, fitScale, toPagePoint } from "./viewport";
+import { boxAt, fitScale, overlaps, toPagePoint } from "./viewport";
 
 const box: Box = { page: 1, id: "a", rect: { x: 100, y: 200, width: 14, height: 14 } };
 
@@ -26,4 +26,12 @@ test("a click just outside still hits it", () => {
 
 test("a click well clear of the box hits nothing", () => {
   expect(boxAt([box], { x: 140, y: 207 })).toBeUndefined();
+});
+
+test("overlapping rects are recognised", () => {
+  expect(overlaps({ x: 0, y: 0, width: 10, height: 10 }, { x: 9, y: 9, width: 10, height: 10 })).toBe(true);
+});
+
+test("touching edges do not count as overlap", () => {
+  expect(overlaps({ x: 0, y: 0, width: 10, height: 10 }, { x: 10, y: 0, width: 10, height: 10 })).toBe(false);
 });
