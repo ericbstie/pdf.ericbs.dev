@@ -7,8 +7,8 @@ import { exportPdf } from "./export";
 const nothing: Marks = { strokes: [], writings: [], ticks: [] };
 
 /** Fixture rects are in PDF space; marks are in page space, so flip the y axis. */
-function asPageBox(rect: (typeof FLAT_BOXES)[number], id: string, field?: string): Box {
-  return { page: 1, id, field, rect: { ...rect, y: PAGE_SIZE.height - rect.y - rect.height } };
+function asPageBox(rect: (typeof FLAT_BOXES)[number], field?: string): Box {
+  return { page: 1, field, rect: { ...rect, y: PAGE_SIZE.height - rect.y - rect.height } };
 }
 
 test("writing lands where it was placed", async () => {
@@ -30,14 +30,14 @@ test("the original content survives", async () => {
 test("a ticked form checkbox becomes a field value", async () => {
   const saved = await exportPdf(await buildFormCheckboxPdf(), {
     ...nothing,
-    ticks: [asPageBox(FORM_BOXES[0]!, "agree", "agree")],
+    ticks: [asPageBox(FORM_BOXES[0]!, "agree")],
   });
   expect(await readCheckboxStates(saved)).toEqual(new Map([["agree", true], ["subscribe", false]]));
 });
 
 test("a printed checkbox gets a stroked tick stamped over it", async () => {
   const source = await buildFlatCheckboxPdf();
-  const saved = await exportPdf(source, { ...nothing, ticks: [asPageBox(FLAT_BOXES[0]!, "0")] });
+  const saved = await exportPdf(source, { ...nothing, ticks: [asPageBox(FLAT_BOXES[0]!)] });
   const before = await countPaintOps(source);
   const after = await countPaintOps(saved);
   expect(after.stroked).toBe(before.stroked + 1);

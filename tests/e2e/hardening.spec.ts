@@ -21,7 +21,11 @@ function family(directive: string): string {
   return directive.replace(/-(elem|attr)$/, "");
 }
 
-/** Whichever directive stopped the attempt, or "none" if nothing did. */
+/**
+ * Whichever directive stopped the attempt, or "none" if nothing did. The body is compiled by the
+ * debugger, which the page's policy does not govern — so what these probes weigh is the fetch or
+ * the load the body goes on to make, never the compiling of it.
+ */
 function attempt(page: Page, reach: string): Promise<string> {
   return page.evaluate(
     body =>
@@ -86,4 +90,29 @@ test("a path the editor does not have is not served the editor", async ({ page }
   expect(response.status()).toBe(404);
   expect(response.headers()["content-type"]).toContain("text/plain");
   expect(await response.text()).not.toContain("<html");
+});
+
+test("the policy leaves script no way in but this origin", async ({ page }) => {
+  await page.goto("/");
+  const policy = await page.evaluate(
+    () => document.querySelector('meta[http-equiv="Content-Security-Policy" i]')?.getAttribute("content") ?? "",
+  );
+  const directive = policy.split(";").map(part => part.trim()).find(part => part.startsWith("script-src"));
+  expect(directive).toBe("script-src 'self'");
+  expect(policy).toContain("default-src 'none'");
+});
+
+test("script written into the page does not run", async ({ page }) => {
+  await watchViolations(page);
+  await page.goto("/");
+
+  const ran = await page.evaluate(() => {
+    const script = document.createElement("script");
+    script.textContent = "window.__ran = true";
+    document.head.append(script);
+    return (window as { __ran?: boolean }).__ran === true;
+  });
+
+  expect(ran).toBe(false);
+  expect((await violationsOf(page)).some(reported => reported.startsWith("script-src"))).toBe(true);
 });

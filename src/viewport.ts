@@ -8,6 +8,8 @@ const MAX_MARGIN = 48;
 const MARGIN_SHARE = 0.05;
 
 export function fitScale(containerWidth: number, pageWidth: number): number {
+  // A file with no pages has no width to fit; anything would do, since nothing will be laid out.
+  if (pageWidth <= 0) return 1;
   const margin = Math.min(MAX_MARGIN, containerWidth * MARGIN_SHARE);
   return Math.min(MAX_SCALE, Math.max(0.2, (containerWidth - margin) / pageWidth));
 }

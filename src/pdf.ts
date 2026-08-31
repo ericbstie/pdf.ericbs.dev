@@ -61,7 +61,6 @@ async function widgetBoxes(page: PDFPageProxy, viewport: PageViewport): Promise<
     .filter(annotation => annotation.subtype === "Widget" && annotation.checkBox === true)
     .map(annotation => ({
       page: page.pageNumber,
-      id: `field:${annotation.fieldName}`,
       field: annotation.fieldName as string,
       rect: toViewSpace(annotation.rect, viewport),
     }));
@@ -74,7 +73,7 @@ function printedBoxes(image: HTMLCanvasElement, target: RenderTarget): Box[] {
   const size = { minPixels: BOX_POINTS.smallest * target.pixelsPerPoint, maxPixels: BOX_POINTS.largest * target.pixelsPerPoint };
   return findCheckboxes(toBitmap(pixels), size)
     .map(found => toPagePoints(found, target.pixelsPerPoint))
-    .map(rect => ({ page: target.number, id: `drawn:${target.number}:${Math.round(rect.x)},${Math.round(rect.y)}`, rect }));
+    .map(rect => ({ page: target.number, rect }));
 }
 
 async function paintToCanvas(page: PDFPageProxy, viewport: PageViewport): Promise<HTMLCanvasElement> {

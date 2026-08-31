@@ -4,6 +4,9 @@ const AWKWARD = /[\p{C}/\\:*?"<>|]/gu;
 /** Long enough for any real title, short enough that no file system refuses the name. */
 const MAX_STEM = 100;
 
+/** Names Windows keeps for devices. It refuses them whatever extension follows. */
+const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+
 /** A name the browser will accept for the saved copy: no path, no control characters, always a PDF. */
 export function downloadName(chosen: string): string {
   const stem = chosen
@@ -11,10 +14,11 @@ export function downloadName(chosen: string): string {
     .replace(AWKWARD, " ")
     .replace(/\s+/g, " ")
     .replace(/^[.\s]+/, "")
-    .trim()
     .slice(0, MAX_STEM)
-    .trim();
-  return `${stem === "" ? "document" : stem}.pdf`;
+    // Windows will not take a trailing dot or space either, and slicing can leave one behind.
+    .replace(/[.\s]+$/, "");
+  if (stem === "") return "document.pdf";
+  return RESERVED.test(stem) ? `${stem}_.pdf` : `${stem}.pdf`;
 }
 
 /** Browsers cancel a download whose blob has already been let go, so the URL outlives the click. */

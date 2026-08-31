@@ -4,9 +4,11 @@ Truly free online PDF editor
 Files are opened, edited and saved entirely in the browser. Nothing is uploaded, there is no
 account, and the server stores nothing.
 
-So that a reload does not cost you your work, the open file and the edits made to it are kept in
-the browser's IndexedDB, on that device only. They stay there until another file is opened in
-their place, so on a shared computer, clear the site's data when you are done.
+So that a reload does not cost you your work, the open file and the edits made to it are written
+to the browser's IndexedDB, on that device only. That copy is kept on disk: it outlives the tab,
+and closing the browser does not remove it. It goes when you close the PDF with the toolbar's
+close button, or when another file takes its place. On a shared or borrowed computer, close the
+PDF when you are done — clearing the site's data does the same thing.
 
 ## Running it
 
