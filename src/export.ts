@@ -1,6 +1,7 @@
-import { LineCapStyle, PDFDocument, type PDFFont, type PDFForm, type PDFPage, StandardFonts, rgb } from "pdf-lib";
+import { LineCapStyle, PDFDocument, type PDFFont, type PDFForm, type PDFPage, StandardFonts, degrees, rgb } from "pdf-lib";
 import type { Box, Marks, Stroke, Writing } from "./edits";
 import { checkPath, checkWidth, polylinePath } from "./paths";
+import { type PageBox, toUserPoint } from "./space";
 import { keepEncodable } from "./text";
 
 const INK = rgb(0.05, 0.05, 0.05);
@@ -8,36 +9,48 @@ const INK = rgb(0.05, 0.05, 0.05);
 /** Helvetica's cap height is 0.717em, so its middle sits this far above the baseline. */
 const CAP_MIDDLE = 0.358;
 
-/** Anchors an SVG path's origin at the page's top-left corner, y downward. */
-function pageSpace(page: PDFPage) {
-  return { x: 0, y: page.getHeight() };
+/** Where a page's view space lands in the file: the corner it starts from and the turn it takes. */
+type Sheet = { page: PDFPage; box: PageBox; angle: number; corner: { x: number; y: number } };
+
+function sheetOf(page: PDFPage): Sheet {
+  const box = page.getCropBox();
+  const angle = page.getRotation().angle;
+  return { page, box, angle, corner: toUserPoint({ x: 0, y: 0 }, box, angle) };
 }
 
-function drawStroke(page: PDFPage, stroke: Stroke): void {
-  page.drawSvgPath(polylinePath(stroke.points), {
-    ...pageSpace(page),
+/** Places an SVG path so its own top-left origin sits on the page's, however the page is turned. */
+function drawPath(sheet: Sheet, path: string, width: number): void {
+  sheet.page.drawSvgPath(path, {
+    x: sheet.corner.x,
+    y: sheet.corner.y,
+    rotate: degrees(sheet.angle),
     borderColor: INK,
-    borderWidth: stroke.width,
+    borderWidth: width,
     borderLineCap: LineCapStyle.Round,
   });
 }
 
-function drawWriting(page: PDFPage, writing: Writing, font: PDFFont): void {
-  page.drawText(keepEncodable(writing.text), {
-    x: writing.at.x,
-    y: page.getHeight() - writing.at.y - writing.size * CAP_MIDDLE,
+function drawStroke(sheet: Sheet, stroke: Stroke): void {
+  drawPath(sheet, polylinePath(stroke.points), stroke.width);
+}
+
+function stampTick(sheet: Sheet, box: Box): void {
+  drawPath(sheet, checkPath(box.rect), checkWidth(box.rect));
+}
+
+function drawWriting(sheet: Sheet, writing: Writing, font: PDFFont): void {
+  const baseline = toUserPoint(
+    { x: writing.at.x, y: writing.at.y + writing.size * CAP_MIDDLE },
+    sheet.box,
+    sheet.angle,
+  );
+  sheet.page.drawText(keepEncodable(writing.text), {
+    x: baseline.x,
+    y: baseline.y,
     size: writing.size,
     font,
     color: INK,
-  });
-}
-
-function stampTick(page: PDFPage, box: Box): void {
-  page.drawSvgPath(checkPath(box.rect), {
-    ...pageSpace(page),
-    borderColor: INK,
-    borderWidth: checkWidth(box.rect),
-    borderLineCap: LineCapStyle.Round,
+    rotate: degrees(sheet.angle),
   });
 }
 
@@ -51,20 +64,20 @@ function tickField(form: PDFForm, name: string): boolean {
   }
 }
 
-function tickBox(form: PDFForm, page: PDFPage, box: Box): void {
+function tickBox(form: PDFForm, sheet: Sheet, box: Box): void {
   if (box.field && tickField(form, box.field)) return;
-  stampTick(page, box);
+  stampTick(sheet, box);
 }
 
 /** Paints marks onto the pages they belong to, ignoring any that point past the end of the file. */
 function paintEach<Mark extends { page: number }>(
-  pages: readonly PDFPage[],
+  sheets: readonly Sheet[],
   marks: readonly Mark[],
-  paint: (page: PDFPage, mark: Mark) => void,
+  paint: (sheet: Sheet, mark: Mark) => void,
 ): void {
   for (const mark of marks) {
-    const page = pages[mark.page - 1];
-    if (page) paint(page, mark);
+    const sheet = sheets[mark.page - 1];
+    if (sheet) paint(sheet, mark);
   }
 }
 
@@ -72,9 +85,9 @@ export async function exportPdf(source: Uint8Array, marks: Marks): Promise<Uint8
   const doc = await PDFDocument.load(source);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const form = doc.getForm();
-  const pages = doc.getPages();
-  paintEach(pages, marks.strokes, drawStroke);
-  paintEach(pages, marks.writings, (page, writing) => drawWriting(page, writing, font));
-  paintEach(pages, marks.ticks, (page, box) => tickBox(form, page, box));
+  const sheets = doc.getPages().map(sheetOf);
+  paintEach(sheets, marks.strokes, drawStroke);
+  paintEach(sheets, marks.writings, (sheet, writing) => drawWriting(sheet, writing, font));
+  paintEach(sheets, marks.ticks, (sheet, box) => tickBox(form, sheet, box));
   return doc.save();
 }

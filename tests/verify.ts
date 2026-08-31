@@ -51,3 +51,54 @@ export async function countPaintOps(pdf: Uint8Array, pageNumber = 1): Promise<Pa
     filled: tally(fill, eoFill, fillStroke),
   };
 }
+
+/** Where a PDF-space point shows up on screen, according to pdf.js itself. */
+export async function toViewPoint(pdf: Uint8Array, userPoint: { x: number; y: number }, pageNumber = 1) {
+  const pages = await readPagesOf(pdf);
+  const viewport = pages[pageNumber - 1]!.getViewport({ scale: 1 });
+  const [x, y] = viewport.convertToViewportPoint(userPoint.x, userPoint.y);
+  return { x: x!, y: y! };
+}
+
+type Matrix = [number, number, number, number, number, number];
+
+const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
+
+/** Row-vector product: a point runs through `first`, then `then`. */
+function combine(first: Matrix, then: Matrix): Matrix {
+  const [a, b, c, d, e, f] = first;
+  const [A, B, C, D, E, F] = then;
+  return [
+    a * A + b * C,
+    a * B + b * D,
+    c * A + d * C,
+    c * B + d * D,
+    e * A + f * C + E,
+    e * B + f * D + F,
+  ];
+}
+
+function apply(matrix: Matrix, point: { x: number; y: number }) {
+  const [a, b, c, d, e, f] = matrix;
+  return { x: a * point.x + c * point.y + e, y: b * point.x + d * point.y + f };
+}
+
+/** The corner of each painted path's bounding box, in PDF user space. Exact for one-point paths. */
+export async function readPathCorners(pdf: Uint8Array, pageNumber = 1): Promise<{ x: number; y: number }[]> {
+  const pages = await readPagesOf(pdf);
+  const { fnArray, argsArray } = await pages[pageNumber - 1]!.getOperatorList();
+  const stack: Matrix[] = [];
+  let current: Matrix = IDENTITY;
+  const corners: { x: number; y: number }[] = [];
+  fnArray.forEach((fn: number, index: number) => {
+    const args = argsArray[index] as never[];
+    if (fn === pdfjs.OPS.save) stack.push(current);
+    if (fn === pdfjs.OPS.restore) current = stack.pop() ?? IDENTITY;
+    if (fn === pdfjs.OPS.transform) current = combine(args as unknown as Matrix, current);
+    if (fn === pdfjs.OPS.constructPath) {
+      const [x, y] = args[2] as unknown as number[];
+      corners.push(apply(current, { x: x!, y: y! }));
+    }
+  });
+  return corners;
+}

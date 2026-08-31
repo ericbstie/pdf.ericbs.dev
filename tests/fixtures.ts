@@ -1,4 +1,4 @@
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, StandardFonts, degrees, rgb } from "pdf-lib";
 
 export type Rect = { x: number; y: number; width: number; height: number };
 
@@ -60,5 +60,13 @@ export async function buildFormCheckboxPdf(): Promise<Uint8Array> {
   for (const { name, ...rect } of FORM_BOXES) {
     form.createCheckBox(name).addToPage(page, rect);
   }
+  return doc.save();
+}
+
+export async function buildRotatedPdf(rotation: number): Promise<Uint8Array> {
+  const { doc, page } = await startPage();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  page.setRotation(degrees(rotation));
+  page.drawText("Rental agreement", { x: 72, y: 740, size: 18, font });
   return doc.save();
 }

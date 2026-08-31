@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { FLAT_BOXES, FORM_BOXES, PAGE_SIZE, buildFlatCheckboxPdf, buildFormCheckboxPdf, buildPlainPdf } from "../tests/fixtures";
-import { countPaintOps, readCheckboxStates, readTextPlacements } from "../tests/verify";
+import { FLAT_BOXES, FORM_BOXES, PAGE_SIZE, buildFlatCheckboxPdf, buildFormCheckboxPdf, buildPlainPdf, buildRotatedPdf } from "../tests/fixtures";
+import { countPaintOps, readCheckboxStates, readPathCorners, readTextPlacements, toViewPoint } from "../tests/verify";
 import type { Box, Marks } from "./edits";
 import { exportPdf } from "./export";
 
@@ -63,3 +63,33 @@ test("marks aimed past the last page are dropped", async () => {
   });
   expect(saved.length).toBeGreaterThan(0);
 });
+
+for (const rotation of [0, 90, 180, 270]) {
+  test(`writing lands where it was placed on a page turned ${rotation} degrees`, async () => {
+    const at = { x: 120, y: 200 };
+    const saved = await exportPdf(await buildRotatedPdf(rotation), {
+      ...nothing,
+      writings: [{ page: 1, at, text: "Paid in full", size: 14 }],
+    });
+    const written = (await readTextPlacements(saved)).find(item => item.text === "Paid in full");
+    expect(written).toBeDefined();
+    const onScreen = await toViewPoint(saved, written!);
+    expect(onScreen.x).toBeCloseTo(at.x, 0);
+    expect(onScreen.y).toBeCloseTo(at.y + 14 * 0.358, 0);
+  });
+}
+
+for (const rotation of [0, 90, 180, 270]) {
+  test(`ink lands where it was drawn on a page turned ${rotation} degrees`, async () => {
+    const at = { x: 120, y: 200 };
+    const saved = await exportPdf(await buildRotatedPdf(rotation), {
+      ...nothing,
+      strokes: [{ page: 1, points: [at], width: 3 }],
+    });
+    const [corner] = await readPathCorners(saved);
+    expect(corner).toBeDefined();
+    const onScreen = await toViewPoint(saved, corner!);
+    expect(onScreen.x).toBeCloseTo(at.x, 3);
+    expect(onScreen.y).toBeCloseTo(at.y, 3);
+  });
+}

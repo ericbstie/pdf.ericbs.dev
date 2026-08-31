@@ -11,6 +11,8 @@ import { overlaps } from "./viewport";
 /** The range a printed checkbox falls in, in points. */
 const BOX_POINTS = { smallest: 7, largest: 26 };
 
+type PageViewport = ReturnType<PDFPageProxy["getViewport"]>;
+
 export type PageSize = { width: number; height: number };
 
 export type RenderedPage = {
@@ -26,12 +28,15 @@ export type OpenPdf = {
   render(pageNumber: number, pixelsPerPoint: number): Promise<RenderedPage>;
 };
 
-function toPageSpace(pdfRect: number[], pageHeight: number): Rect {
+/** Annotations sit in PDF user space, so the viewport places them the same way it places the page. */
+function toViewSpace(pdfRect: number[], viewport: PageViewport): Rect {
   const [left, bottom, right, top] = pdfRect as [number, number, number, number];
-  return { x: left, y: pageHeight - top, width: right - left, height: top - bottom };
+  const [x1, y1] = viewport.convertToViewportPoint(left, bottom) as [number, number];
+  const [x2, y2] = viewport.convertToViewportPoint(right, top) as [number, number];
+  return { x: Math.min(x1, x2), y: Math.min(y1, y2), width: Math.abs(x2 - x1), height: Math.abs(y2 - y1) };
 }
 
-async function widgetBoxes(page: PDFPageProxy, pageHeight: number): Promise<Box[]> {
+async function widgetBoxes(page: PDFPageProxy, viewport: PageViewport): Promise<Box[]> {
   const annotations = await page.getAnnotations();
   return annotations
     .filter(annotation => annotation.subtype === "Widget" && annotation.checkBox === true)
@@ -39,7 +44,7 @@ async function widgetBoxes(page: PDFPageProxy, pageHeight: number): Promise<Box[
       page: page.pageNumber,
       id: `field:${annotation.fieldName}`,
       field: annotation.fieldName as string,
-      rect: toPageSpace(annotation.rect, pageHeight),
+      rect: toViewSpace(annotation.rect, viewport),
     }));
 }
 
@@ -53,8 +58,7 @@ function printedBoxes(image: HTMLCanvasElement, target: RenderTarget): Box[] {
     .map(rect => ({ page: target.number, id: `drawn:${target.number}:${Math.round(rect.x)},${Math.round(rect.y)}`, rect }));
 }
 
-async function paintToCanvas(page: PDFPageProxy, pixelsPerPoint: number): Promise<HTMLCanvasElement> {
-  const viewport = page.getViewport({ scale: pixelsPerPoint });
+async function paintToCanvas(page: PDFPageProxy, viewport: PageViewport): Promise<HTMLCanvasElement> {
   const canvas = document.createElement("canvas");
   canvas.width = Math.ceil(viewport.width);
   canvas.height = Math.ceil(viewport.height);
@@ -76,22 +80,22 @@ export async function openPdf(bytes: Uint8Array): Promise<OpenPdf> {
     Array.from({ length: doc.numPages }, (_, index) => doc.getPage(index + 1)),
   );
   const sizes = pages.map(page => {
-    const [width, height] = [page.view[2]! - page.view[0]!, page.view[3]! - page.view[1]!];
+    const { width, height } = page.getViewport({ scale: 1 });
     return { width, height };
   });
   return {
     sizes,
     async render(pageNumber, pixelsPerPoint) {
       const page = pages[pageNumber - 1]!;
-      const size = sizes[pageNumber - 1]!;
-      const image = await paintToCanvas(page, pixelsPerPoint);
+      const viewport = page.getViewport({ scale: pixelsPerPoint });
+      const image = await paintToCanvas(page, viewport);
       const target = { number: pageNumber, pixelsPerPoint };
       return {
         number: pageNumber,
-        size,
+        size: sizes[pageNumber - 1]!,
         image,
         pixelsPerPoint,
-        boxes: mergeBoxes(await widgetBoxes(page, size.height), printedBoxes(image, target)),
+        boxes: mergeBoxes(await widgetBoxes(page, page.getViewport({ scale: 1 })), printedBoxes(image, target)),
       };
     },
   };
