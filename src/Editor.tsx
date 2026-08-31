@@ -10,7 +10,7 @@ import { fitScale, widestPage } from "./viewport";
 /** `opening` counts openings rather than files: it is what tells one page 1 from the next one. */
 type OpenFile = { opening: number; name: string; bytes: Uint8Array; pdf: OpenPdf };
 
-/** Well past any form worth filling in by hand, and short of what would sink the tab. */
+/** Past any form worth filling in by hand. Mostly it catches a stray drag of something enormous. */
 const MAX_FILE_BYTES = 100 * 1024 * 1024;
 
 const PICKER_ID = "open-pdf";

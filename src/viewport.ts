@@ -20,8 +20,11 @@ export function widestPage(sizes: readonly { width: number }[]): number {
 /** Sharper than this no eye can tell, and every extra pixel is memory a phone would rather keep. */
 const MAX_PIXEL_RATIO = 2;
 
-/** Past a few million pixels a canvas quietly stops painting, and phones give up soonest. */
-const MAX_CANVAS_PIXELS = 4_000_000;
+/**
+ * Past some millions of pixels a canvas quietly stops painting, soonest on a phone. Set well
+ * above a letter page at full density, so only genuinely outsized pages are ever coarsened.
+ */
+const MAX_CANVAS_PIXELS = 8_000_000;
 
 /** Canvas pixels per page point: as sharp as the screen deserves, as coarse as the page demands. */
 export function paintDensity(scale: number, pixelRatio: number, page: { width: number; height: number }): number {
