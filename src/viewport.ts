@@ -2,26 +2,52 @@ import type { Box, Point, Rect } from "./edits";
 
 /** Widest a page is drawn, in CSS pixels per point, so a page never outgrows a comfortable reading size. */
 const MAX_SCALE = 1.5;
-const PAGE_MARGIN = 48;
+
+/** Breathing room beside a page. A phone gives most of it up: there, width is the scarce thing. */
+const MAX_MARGIN = 48;
+const MARGIN_SHARE = 0.05;
 
 export function fitScale(containerWidth: number, pageWidth: number): number {
-  return Math.min(MAX_SCALE, Math.max(0.2, (containerWidth - PAGE_MARGIN) / pageWidth));
+  const margin = Math.min(MAX_MARGIN, containerWidth * MARGIN_SHARE);
+  return Math.min(MAX_SCALE, Math.max(0.2, (containerWidth - margin) / pageWidth));
+}
+
+/** The width every page has to fit into, counted without spreading a whole file into one call. */
+export function widestPage(sizes: readonly { width: number }[]): number {
+  return sizes.reduce((widest, size) => Math.max(widest, size.width), 0);
+}
+
+/** Sharper than this no eye can tell, and every extra pixel is memory a phone would rather keep. */
+const MAX_PIXEL_RATIO = 2;
+
+/** Past a few million pixels a canvas quietly stops painting, and phones give up soonest. */
+const MAX_CANVAS_PIXELS = 4_000_000;
+
+/** Canvas pixels per page point: as sharp as the screen deserves, as coarse as the page demands. */
+export function paintDensity(scale: number, pixelRatio: number, page: { width: number; height: number }): number {
+  const wanted = scale * Math.min(pixelRatio, MAX_PIXEL_RATIO);
+  const affordable = Math.sqrt(MAX_CANVAS_PIXELS / (page.width * page.height));
+  return Math.min(wanted, affordable);
 }
 
 export function toPagePoint(offset: Point, scale: number): Point {
   return { x: offset.x / scale, y: offset.y / scale };
 }
 
-/** Small boxes are easy to miss, so clicks land within a couple of points of one. */
-const SLOP = 2;
+/** How far off a small box a click may land and still count. A fingertip needs more room than a cursor. */
+const REACH = { cursor: 2, finger: 8 };
 
-export function boxAt(boxes: readonly Box[], point: Point): Box | undefined {
+export function reachFor(pointerType: string): number {
+  return pointerType === "mouse" ? REACH.cursor : REACH.finger;
+}
+
+export function boxAt(boxes: readonly Box[], point: Point, reach: number): Box | undefined {
   return boxes.find(
     ({ rect }) =>
-      point.x >= rect.x - SLOP &&
-      point.x <= rect.x + rect.width + SLOP &&
-      point.y >= rect.y - SLOP &&
-      point.y <= rect.y + rect.height + SLOP,
+      point.x >= rect.x - reach &&
+      point.x <= rect.x + rect.width + reach &&
+      point.y >= rect.y - reach &&
+      point.y <= rect.y + rect.height + reach,
   );
 }
 

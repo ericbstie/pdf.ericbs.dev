@@ -73,3 +73,26 @@ async function readDownload(download: Download): Promise<Uint8Array> {
   for await (const chunk of stream) chunks.push(chunk as Buffer);
   return new Uint8Array(Buffer.concat(chunks));
 }
+
+/**
+ * Long enough for the gesture recogniser to finish with one touch before the next arrives.
+ * Injected events carry no pause of their own, and a tap in the same tick as the previous
+ * touchend has its click swallowed. No finger lifts and lands that fast.
+ */
+const SETTLE = 150;
+
+/** A real finger drag. Playwright's touchscreen only taps, so the raw input events go through CDP. */
+export async function touchDrag(page: Page, from: Point, to: Point, steps = 10): Promise<void> {
+  const input = await page.context().newCDPSession(page);
+  const step = (index: number): Point => ({
+    x: from.x + ((to.x - from.x) * index) / steps,
+    y: from.y + ((to.y - from.y) * index) / steps,
+  });
+  await input.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [step(0)] });
+  for (let index = 1; index <= steps; index += 1) {
+    await input.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [step(index)] });
+  }
+  await input.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await input.detach();
+  await page.waitForTimeout(SETTLE);
+}

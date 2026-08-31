@@ -4,10 +4,21 @@ import { Toolbar, type Tool } from "./Toolbar";
 import { downloadFile } from "./download";
 import { type Command, marksFrom, marksOnPage, withoutLast } from "./edits";
 import { exportPdf } from "./export";
-import { type OpenPdf, openPdf } from "./pdf";
-import { fitScale } from "./viewport";
+import { type OpenPdf, type OpenProblem, openPdf } from "./pdf";
+import { fitScale, widestPage } from "./viewport";
 
 type OpenFile = { name: string; bytes: Uint8Array; pdf: OpenPdf };
+
+/** Well past any form worth filling in by hand, and short of what would sink the tab. */
+const MAX_FILE_BYTES = 100 * 1024 * 1024;
+
+const PICKER_ID = "open-pdf";
+
+const TROUBLE: Record<OpenProblem, string> = {
+  encrypted: "This PDF is locked with a password, so it cannot be opened here.",
+  "too-many-pages": "This PDF has more pages than the editor can open.",
+  unreadable: "This file could not be read as a PDF.",
+};
 
 function useContainerWidth() {
   const ref = useRef<HTMLDivElement>(null);
@@ -22,6 +33,15 @@ function useContainerWidth() {
   return { ref, width };
 }
 
+/** Reading a chosen file can still fail: it may have been moved or unplugged since it was picked. */
+async function readBytes(file: File): Promise<Uint8Array | null> {
+  try {
+    return new Uint8Array(await file.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
 function OpenIcon() {
   return (
     <svg viewBox="0 0 24 24" className="size-16 fill-none stroke-current stroke-[1.2] [stroke-linecap:round] [stroke-linejoin:round]" aria-hidden="true">
@@ -31,44 +51,76 @@ function OpenIcon() {
   );
 }
 
+function Notice({ text, onDismiss }: { text: string; onDismiss: () => void }) {
+  return (
+    <div role="alert" data-testid="notice" className="fixed inset-x-0 top-0 z-10 grid justify-items-center p-3">
+      <p className="flex max-w-md items-center gap-3 rounded-xl bg-neutral-900/95 px-4 py-3 text-sm shadow-xl ring-1 ring-white/10">
+        <span>{text}</span>
+        <button
+          type="button"
+          aria-label="Dismiss"
+          onClick={onDismiss}
+          className="grid size-8 shrink-0 place-items-center rounded-full text-neutral-400 touch-manipulation hover:bg-white/10 hover:text-white"
+        >
+          <svg viewBox="0 0 24 24" className="size-4 fill-none stroke-current stroke-[1.8] [stroke-linecap:round]" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      </p>
+    </div>
+  );
+}
+
 export function Editor() {
   const [file, setFile] = useState<OpenFile | null>(null);
   const [commands, setCommands] = useState<Command[]>([]);
   const [tool, setTool] = useState<Tool>(null);
   const [dragging, setDragging] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const picker = useRef<HTMLInputElement>(null);
   const { ref, width } = useContainerWidth();
   const marks = useMemo(() => marksFrom(commands), [commands]);
+  const undo = () => setCommands(withoutLast);
 
   const takeFile = async (chosen: File | undefined): Promise<void> => {
     if (!chosen) return;
-    const bytes = new Uint8Array(await chosen.arrayBuffer());
-    const pdf = await openPdf(Uint8Array.from(bytes)).catch(() => null);
-    if (!pdf) return;
+    if (chosen.size > MAX_FILE_BYTES) return setNotice("This file is too big to open here.");
+    const bytes = await readBytes(chosen);
+    if (!bytes) return setNotice("This file could not be read.");
+    const opened = await openPdf(Uint8Array.from(bytes));
+    if (!opened.ok) return setNotice(TROUBLE[opened.problem]);
+    setNotice(null);
+    setTool(null);
     setCommands([]);
-    setFile({ name: chosen.name, bytes, pdf });
+    setFile({ name: chosen.name, bytes, pdf: opened.pdf });
   };
 
   const save = async (): Promise<void> => {
-    if (file) downloadFile(await exportPdf(file.bytes, marks), file.name);
+    if (!file) return;
+    try {
+      downloadFile(await exportPdf(file.bytes, marks), file.name);
+    } catch {
+      setNotice("This PDF could not be saved.");
+    }
   };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement) return;
       if (event.key === "Escape") setTool(null);
-      if (event.key.toLowerCase() === "z" && (event.metaKey || event.ctrlKey)) setCommands(withoutLast);
+      if (event.key.toLowerCase() === "z" && (event.metaKey || event.ctrlKey)) undo();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const scale = file ? fitScale(width, Math.max(...file.pdf.sizes.map(size => size.width))) : 1;
-  const pixelsPerPoint = scale * (window.devicePixelRatio || 1);
+  const scale = file ? fitScale(width, widestPage(file.pdf.sizes)) : 1;
+  const pixelRatio = window.devicePixelRatio || 1;
 
   return (
     <div
       ref={ref}
-      className="h-full overflow-auto"
+      className="h-full overflow-auto overscroll-contain"
       onDragOver={event => {
         event.preventDefault();
         setDragging(true);
@@ -82,8 +134,22 @@ export function Editor() {
         void takeFile(event.dataTransfer.files[0]);
       }}
     >
+      <input
+        ref={picker}
+        id={PICKER_ID}
+        type="file"
+        accept="application/pdf,.pdf"
+        aria-label="Open a PDF"
+        className="sr-only"
+        onChange={event => {
+          const chosen = event.target.files?.[0];
+          event.target.value = "";
+          void takeFile(chosen);
+        }}
+      />
+      {notice && <Notice text={notice} onDismiss={() => setNotice(null)} />}
       {file && width > 0 ? (
-        <div className="flex flex-col items-center gap-6 py-8">
+        <div className="flex flex-col items-center gap-6 pt-8 pb-28">
           {file.pdf.sizes.map((size, index) => (
             <PageView
               key={index}
@@ -91,7 +157,8 @@ export function Editor() {
               number={index + 1}
               size={size}
               scale={scale}
-              pixelsPerPoint={pixelsPerPoint}
+              pixelRatio={pixelRatio}
+              within={ref}
               marks={marksOnPage(marks, index + 1)}
               tool={tool}
               onCommand={command => setCommands(previous => [...previous, command])}
@@ -99,14 +166,7 @@ export function Editor() {
           ))}
         </div>
       ) : (
-        <label className="grid h-full cursor-pointer place-items-center">
-          <input
-            type="file"
-            accept="application/pdf"
-            aria-label="Open a PDF"
-            className="sr-only"
-            onChange={event => void takeFile(event.target.files?.[0])}
-          />
+        <label htmlFor={PICKER_ID} className="grid h-full cursor-pointer place-items-center">
           <span
             className={`grid size-48 place-items-center rounded-3xl border-2 border-dashed transition-colors ${
               dragging ? "border-neutral-200 text-neutral-100" : "border-neutral-600 text-neutral-500 hover:border-neutral-400 hover:text-neutral-300"
@@ -116,7 +176,16 @@ export function Editor() {
           </span>
         </label>
       )}
-      {file && <Toolbar tool={tool} onTool={setTool} onSave={() => void save()} />}
+      {file && (
+        <Toolbar
+          tool={tool}
+          onTool={setTool}
+          onOpen={() => picker.current?.click()}
+          onUndo={undo}
+          canUndo={commands.length > 0}
+          onSave={() => void save()}
+        />
+      )}
     </div>
   );
 }

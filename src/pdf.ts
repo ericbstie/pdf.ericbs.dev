@@ -1,5 +1,5 @@
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
-import type { PDFPageProxy } from "pdfjs-dist/types/src/display/api";
+import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist/types/src/display/api";
 import * as workerHandler from "pdfjs-dist/legacy/build/pdf.worker.mjs";
 import { findCheckboxes, toBitmap, toPagePoints } from "./detect";
 import type { Box, Rect } from "./edits";
@@ -10,6 +10,20 @@ import { overlaps } from "./viewport";
 
 /** The range a printed checkbox falls in, in points. */
 const BOX_POINTS = { smallest: 7, largest: 26 };
+
+/**
+ * What the reader is allowed to do with a file it has never seen before. Both are pdf.js defaults
+ * today, and both are the kind of default that a dependency bump could quietly flip back.
+ */
+const READER_LIMITS = {
+  /** Never build code out of file contents, so the page can refuse `unsafe-eval` outright. */
+  isEvalSupported: false,
+  /** XFA is a second document format, XML and script shaped, that this editor draws none of. */
+  enableXfa: false,
+};
+
+/** More pages than anyone fills in by hand, and few enough that a crafted file cannot exhaust the tab. */
+const MAX_PAGES = 2000;
 
 type PageViewport = ReturnType<PDFPageProxy["getViewport"]>;
 
@@ -27,6 +41,11 @@ export type OpenPdf = {
   sizes: readonly PageSize[];
   render(pageNumber: number, pixelsPerPoint: number): Promise<RenderedPage>;
 };
+
+/** Why a file would not open, in terms the editor can put in front of the person who chose it. */
+export type OpenProblem = "encrypted" | "too-many-pages" | "unreadable";
+
+export type Opened = { ok: true; pdf: OpenPdf } | { ok: false; problem: OpenProblem };
 
 /** Annotations sit in PDF user space, so the viewport places them the same way it places the page. */
 function toViewSpace(pdfRect: number[], viewport: PageViewport): Rect {
@@ -74,15 +93,14 @@ function mergeBoxes(widgets: readonly Box[], printed: readonly Box[]): Box[] {
   return [...widgets, ...printed.filter(box => !widgets.some(widget => overlaps(widget.rect, box.rect)))];
 }
 
-export async function openPdf(bytes: Uint8Array): Promise<OpenPdf> {
-  const doc = await pdfjs.getDocument({ data: bytes }).promise;
-  const pages = await Promise.all(
-    Array.from({ length: doc.numPages }, (_, index) => doc.getPage(index + 1)),
-  );
-  const sizes = pages.map(page => {
-    const { width, height } = page.getViewport({ scale: 1 });
-    return { width, height };
-  });
+function sizeOf(page: PDFPageProxy): PageSize {
+  const { width, height } = page.getViewport({ scale: 1 });
+  return { width, height };
+}
+
+async function readerFor(doc: PDFDocumentProxy): Promise<OpenPdf> {
+  const pages = await Promise.all(Array.from({ length: doc.numPages }, (_, index) => doc.getPage(index + 1)));
+  const sizes = pages.map(sizeOf);
   return {
     sizes,
     async render(pageNumber, pixelsPerPoint) {
@@ -99,4 +117,20 @@ export async function openPdf(bytes: Uint8Array): Promise<OpenPdf> {
       };
     },
   };
+}
+
+function problemOf(error: unknown): OpenProblem {
+  return error instanceof Error && error.name === "PasswordException" ? "encrypted" : "unreadable";
+}
+
+/** Reads a file nobody has vouched for, and names what stopped it rather than throwing. */
+export async function openPdf(bytes: Uint8Array): Promise<Opened> {
+  try {
+    const doc = await pdfjs.getDocument({ data: bytes, ...READER_LIMITS }).promise;
+    if (doc.numPages < 1) return { ok: false, problem: "unreadable" };
+    if (doc.numPages > MAX_PAGES) return { ok: false, problem: "too-many-pages" };
+    return { ok: true, pdf: await readerFor(doc) };
+  } catch (error) {
+    return { ok: false, problem: problemOf(error) };
+  }
 }
