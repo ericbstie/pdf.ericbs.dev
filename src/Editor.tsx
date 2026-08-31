@@ -41,8 +41,10 @@ export function Editor() {
   const takeFile = async (chosen: File | undefined): Promise<void> => {
     if (!chosen) return;
     const bytes = new Uint8Array(await chosen.arrayBuffer());
+    const pdf = await openPdf(Uint8Array.from(bytes)).catch(() => null);
+    if (!pdf) return;
     setCommands([]);
-    setFile({ name: chosen.name, bytes, pdf: await openPdf(Uint8Array.from(bytes)) });
+    setFile({ name: chosen.name, bytes, pdf });
   };
 
   const save = async (): Promise<void> => {

@@ -1,6 +1,6 @@
-import * as pdfjs from "pdfjs-dist";
+import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import type { PDFPageProxy } from "pdfjs-dist/types/src/display/api";
-import * as workerHandler from "pdfjs-dist/build/pdf.worker.mjs";
+import * as workerHandler from "pdfjs-dist/legacy/build/pdf.worker.mjs";
 import { findCheckboxes, toBitmap, toPagePoints } from "./detect";
 import type { Box, Rect } from "./edits";
 import { overlaps } from "./viewport";

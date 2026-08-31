@@ -46,6 +46,7 @@ export async function darkPixels(page: Page, rectPdf: Rect, pageNumber = 1): Pro
     const { data } = element.getContext("2d")!.getImageData(region.x, region.y, region.width, region.height);
     let dark = 0;
     for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3]! < 128) continue;
       const luminance = 0.299 * data[i]! + 0.587 * data[i + 1]! + 0.114 * data[i + 2]!;
       if (luminance < 128) dark += 1;
     }
