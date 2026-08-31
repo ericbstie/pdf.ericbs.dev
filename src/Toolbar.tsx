@@ -40,6 +40,14 @@ function UndoIcon() {
   );
 }
 
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className={ICON} aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18" />
+    </svg>
+  );
+}
+
 function DownloadIcon() {
   return (
     <svg viewBox="0 0 24 24" className={ICON} aria-hidden="true">
@@ -52,12 +60,13 @@ type Props = {
   tool: Tool;
   onTool: (tool: Tool) => void;
   onOpen: () => void;
+  onClose: () => void;
   onUndo: () => void;
   canUndo: boolean;
   onSave: () => void;
 };
 
-export function Toolbar({ tool, onTool, onOpen, onUndo, canUndo, onSave }: Props) {
+export function Toolbar({ tool, onTool, onOpen, onClose, onUndo, canUndo, onSave }: Props) {
   const pick = (wanted: Exclude<Tool, null>) => () => onTool(tool === wanted ? null : wanted);
   return (
     <div
@@ -79,6 +88,15 @@ export function Toolbar({ tool, onTool, onOpen, onUndo, canUndo, onSave }: Props
         </button>
         <button type="button" data-action="save" aria-label="Download" className={BUTTON} onClick={onSave}>
           <DownloadIcon />
+        </button>
+        <button
+          type="button"
+          data-action="close"
+          aria-label="Close this PDF and clear the kept copy"
+          className={BUTTON}
+          onClick={onClose}
+        >
+          <CloseIcon />
         </button>
       </div>
     </div>

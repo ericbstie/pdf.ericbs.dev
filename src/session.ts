@@ -3,13 +3,14 @@ import type { Command } from "./edits";
 /** The file an editing session started from. Its id ties the edits below to this exact opening. */
 export type KeptFile = { id: string; name: string; bytes: Uint8Array };
 
-export type Session = { file: KeptFile; commands: Command[] };
+/** `saved` records whether these edits have already gone to disk as a PDF. */
+export type Session = { file: KeptFile; commands: Command[]; saved: boolean };
 
-type KeptEdits = { id: string; commands: Command[] };
+type KeptEdits = { id: string; commands: Command[]; saved: boolean };
 
 /** Enough to tell one opening from the next. `randomUUID` is absent outside a secure context. */
 export function newFileId(): string {
-  return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 const DATABASE = "pdf.ericbs.dev";
@@ -54,7 +55,8 @@ export async function loadSession(): Promise<Session | null> {
       const wanted = [settled<KeptFile | undefined>(store.get(FILE_KEY)), settled<KeptEdits | undefined>(store.get(EDITS_KEY))] as const;
       const [file, edits] = await Promise.all(wanted);
       if (!file) return null;
-      return { file, commands: edits?.id === file.id ? edits.commands : [] };
+      const mine = edits?.id === file.id ? edits : null;
+      return { file, commands: mine?.commands ?? [], saved: mine?.saved ?? false };
     });
   } catch {
     return null;
@@ -66,8 +68,8 @@ export async function keepFile(file: KeptFile): Promise<boolean> {
   return kept("readwrite", store => store.put(file, FILE_KEY));
 }
 
-export async function keepEdits(id: string, commands: readonly Command[]): Promise<boolean> {
-  return kept("readwrite", store => store.put({ id, commands: [...commands] }, EDITS_KEY));
+export async function keepEdits(id: string, commands: readonly Command[], saved: boolean): Promise<boolean> {
+  return kept("readwrite", store => store.put({ id, commands: [...commands], saved }, EDITS_KEY));
 }
 
 /** Puts the editor back to holding nothing, on disk as well as on screen. */

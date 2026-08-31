@@ -93,6 +93,11 @@ function mergeBoxes(widgets: readonly Box[], printed: readonly Box[]): Box[] {
   return [...widgets, ...printed.filter(box => !widgets.some(widget => overlaps(widget.rect, box.rect)))];
 }
 
+async function boxesOn(page: PDFPageProxy, image: HTMLCanvasElement, pixelsPerPoint: number): Promise<Box[]> {
+  const widgets = await widgetBoxes(page, page.getViewport({ scale: 1 }));
+  return mergeBoxes(widgets, printedBoxes(image, { number: page.pageNumber, pixelsPerPoint }));
+}
+
 function sizeOf(page: PDFPageProxy): PageSize {
   const { width, height } = page.getViewport({ scale: 1 });
   return { width, height };
@@ -101,20 +106,20 @@ function sizeOf(page: PDFPageProxy): PageSize {
 async function readerFor(doc: PDFDocumentProxy): Promise<OpenPdf> {
   const pages = await Promise.all(Array.from({ length: doc.numPages }, (_, index) => doc.getPage(index + 1)));
   const sizes = pages.map(sizeOf);
+  /**
+   * Found once per page and kept. Detection is the costly half of a render, a box does not move,
+   * and its coordinates are in page points either way — so the answer holds however finely the
+   * page is next painted, which also keeps a box's id the same from one painting to the next.
+   */
+  const found = new Map<number, Box[]>();
   return {
     sizes,
     async render(pageNumber, pixelsPerPoint) {
       const page = pages[pageNumber - 1]!;
-      const viewport = page.getViewport({ scale: pixelsPerPoint });
-      const image = await paintToCanvas(page, viewport);
-      const target = { number: pageNumber, pixelsPerPoint };
-      return {
-        number: pageNumber,
-        size: sizes[pageNumber - 1]!,
-        image,
-        pixelsPerPoint,
-        boxes: mergeBoxes(await widgetBoxes(page, page.getViewport({ scale: 1 })), printedBoxes(image, target)),
-      };
+      const image = await paintToCanvas(page, page.getViewport({ scale: pixelsPerPoint }));
+      const boxes = found.get(pageNumber) ?? (await boxesOn(page, image, pixelsPerPoint));
+      found.set(pageNumber, boxes);
+      return { number: pageNumber, size: sizes[pageNumber - 1]!, image, pixelsPerPoint, boxes };
     },
   };
 }

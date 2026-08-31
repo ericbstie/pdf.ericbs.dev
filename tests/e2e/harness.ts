@@ -7,6 +7,11 @@ export function pageCanvas(page: Page, pageNumber = 1): Locator {
   return page.locator(`canvas[data-page="${pageNumber}"]`);
 }
 
+/** Every page the document lays out, painted or not — `pageCanvas` only sees the painted ones. */
+export function sheets(page: Page): Locator {
+  return page.locator("[data-sheet]");
+}
+
 export async function openPdf(page: Page, bytes: Uint8Array, name = "fixture.pdf"): Promise<void> {
   await page.goto("/");
   await page.locator('input[type="file"]').setInputFiles({ name, mimeType: "application/pdf", buffer: Buffer.from(bytes) });
@@ -95,4 +100,19 @@ export async function touchDrag(page: Page, from: Point, to: Point, steps = 10):
   await input.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await input.detach();
   await page.waitForTimeout(SETTLE);
+}
+
+/** Drops a file onto the editor, the way a person would. Dispatched in one go, so it can land mid-restore. */
+export async function dropFile(page: Page, name: string, bytes: Uint8Array): Promise<void> {
+  await page.evaluate(
+    ([label, contents]) => {
+      const file = new File([new Uint8Array(contents as number[])], label as string, { type: "application/pdf" });
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(file);
+      document
+        .querySelector(".overflow-auto")!
+        .dispatchEvent(new DragEvent("drop", { dataTransfer, bubbles: true, cancelable: true }));
+    },
+    [name, [...bytes]] as const,
+  );
 }

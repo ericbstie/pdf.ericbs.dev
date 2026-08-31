@@ -1,6 +1,8 @@
 import { type Page, expect, test } from "@playwright/test";
 import { FLAT_BOXES, buildFlatCheckboxPdf, buildPlainPdf } from "../fixtures";
-import { centerOf, darkPixels, openPdf, pageCanvas, savePdf, viewportPoint } from "./harness";
+import { centerOf, darkPixels, dropFile, openPdf, pageCanvas, savePdf, sheets, viewportPoint } from "./harness";
+
+const picker = (page: Page) => page.locator('label[for="open-pdf"]');
 
 /** Two clear bands of the page, far enough apart that a stroke in one cannot show up in the other. */
 const BLANK = { x: 200, y: 400, width: 200, height: 40 };
@@ -112,4 +114,85 @@ test("taking every edit back leaves nothing to confirm", async ({ page }) => {
   await page.locator('[data-action="undo"]').click();
   await expect.poll(() => darkPixels(page, BLANK)).toBe(0);
   expect(await asksBeforeLeaving(page)).toBe(false);
+});
+
+test("closing takes the kept copy off the disk with it", async ({ page }) => {
+  await openPdf(page, await buildPlainPdf());
+  await drawAcross(page);
+  page.once("dialog", dialog => void dialog.accept());
+  await page.locator('[data-action="close"]').click();
+
+  await expect(pageCanvas(page)).toHaveCount(0);
+  await expect(picker(page)).toBeVisible();
+
+  await page.reload();
+  await expect(picker(page)).toBeVisible();
+  await expect(pageCanvas(page)).toHaveCount(0);
+});
+
+test("closing asks first when edits would be lost, and abides by no", async ({ page }) => {
+  await openPdf(page, await buildPlainPdf());
+  await drawAcross(page);
+  page.once("dialog", dialog => void dialog.dismiss());
+  await page.locator('[data-action="close"]').click();
+
+  await expect(pageCanvas(page)).toBeVisible();
+  expect(await darkPixels(page, BLANK)).toBeGreaterThan(50);
+});
+
+test("closing a file with nothing to lose does not ask", async ({ page }) => {
+  await openPdf(page, await buildPlainPdf());
+  let asked = false;
+  page.on("dialog", dialog => {
+    asked = true;
+    void dialog.accept();
+  });
+  await page.locator('[data-action="close"]').click();
+
+  await expect(picker(page)).toBeVisible();
+  expect(asked).toBe(false);
+});
+
+test("a restored session already downloaded does not ask before leaving", async ({ page }) => {
+  await openPdf(page, await buildPlainPdf());
+  await drawAcross(page);
+  await savePdf(page);
+
+  await page.reload();
+  await expect(pageCanvas(page)).toBeVisible();
+  await expect.poll(() => darkPixels(page, BLANK)).toBeGreaterThan(50);
+  expect(await asksBeforeLeaving(page)).toBe(false);
+});
+
+test("a restored session never downloaded still asks before leaving", async ({ page }) => {
+  await openPdf(page, await buildPlainPdf());
+  await drawAcross(page);
+
+  await page.reload();
+  await expect(pageCanvas(page)).toBeVisible();
+  expect(await asksBeforeLeaving(page)).toBe(true);
+});
+
+test("a file dropped while a restore is still running is the one that survives", async ({ page }) => {
+  test.setTimeout(90_000);
+  await openPdf(page, await buildPlainPdf(200));
+  const chosen = await buildPlainPdf(2);
+
+  // Slow the tab right down, so reading and parsing the kept file is still going when the dropped
+  // one arrives. At full speed the restore is over before anything can race it.
+  const throttle = await page.context().newCDPSession(page);
+  await throttle.send("Emulation.setCPUThrottlingRate", { rate: 20 });
+  await page.reload();
+  await dropFile(page, "chosen.pdf", chosen);
+  await expect(sheets(page)).toHaveCount(2, { timeout: 60_000 });
+  await throttle.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+  await throttle.detach();
+
+  // The restore lands about here. It must not put the two-hundred-page file back over the dropped one.
+  await page.waitForTimeout(2500);
+  await expect(sheets(page)).toHaveCount(2);
+
+  // And the disk has to agree, or the next reload undoes it anyway.
+  await page.reload();
+  await expect(sheets(page)).toHaveCount(2);
 });
