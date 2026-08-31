@@ -70,6 +70,17 @@ function OpenIcon() {
   );
 }
 
+function Spinner() {
+  return (
+    <div role="status" aria-label="Loading PDF" className="fixed inset-0 z-20 grid place-items-center bg-neutral-900/60">
+      <svg viewBox="0 0 24 24" className="size-16 animate-spin fill-none stroke-current stroke-[1.2]" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" className="opacity-25" />
+        <path d="M21 12a9 9 0 0 0-9-9" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    </div>
+  );
+}
+
 function Notice({ text, onDismiss }: { text: string; onDismiss: () => void }) {
   return (
     <div role="alert" data-testid="notice" className="fixed inset-x-0 top-0 z-10 grid justify-items-center p-3">
@@ -98,6 +109,7 @@ export function Editor() {
   const [selected, setSelected] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   /** The edits as they stood when they last went to disk as a PDF, so leaving knows what is at stake. */
   const [savedAt, setSavedAt] = useState<readonly Command[] | null>(null);
   /** The zoom the pages have been painted for, which is the zoom the fingers have come to rest at. */
@@ -173,22 +185,27 @@ export function Editor() {
   const takeFile = async (chosen: File | undefined): Promise<void> => {
     if (!chosen) return;
     if (chosen.size > MAX_FILE_BYTES) return setNotice("This file is too big to open here.");
-    const bytes = await readBytes(chosen);
-    if (!bytes) return setNotice("This file could not be read.");
-    const opened = await openPdf(Uint8Array.from(bytes));
-    if (!opened.ok) return setNotice(TROUBLE[opened.problem]);
-    const kept = { id: newId(), name: chosen.name, bytes };
-    // Everything below runs without awaiting, so a restore cannot land between giving way and showing.
-    restoreWanted.current = false;
-    setNotice(null);
-    setTool(null);
-    setSelected(null);
-    resetZoom();
-    setCommands([]);
-    setSavedAt(null);
-    setFile({ ...kept, pdf: opened.pdf });
-    // The pages are on screen by now; a copy of a hundred megabytes need not hold them up.
-    if (!(await keepFile(kept))) setNotice("This browser will not keep a copy, so a reload would lose any edits.");
+    setLoading(true);
+    try {
+      const bytes = await readBytes(chosen);
+      if (!bytes) return setNotice("This file could not be read.");
+      const opened = await openPdf(Uint8Array.from(bytes));
+      if (!opened.ok) return setNotice(TROUBLE[opened.problem]);
+      const kept = { id: newId(), name: chosen.name, bytes };
+      // Everything below runs without awaiting, so a restore cannot land between giving way and showing.
+      restoreWanted.current = false;
+      setNotice(null);
+      setTool(null);
+      setSelected(null);
+      resetZoom();
+      setCommands([]);
+      setSavedAt(null);
+      setFile({ ...kept, pdf: opened.pdf });
+      // The pages are on screen by now; a copy of a hundred megabytes need not hold them up.
+      if (!(await keepFile(kept))) setNotice("This browser will not keep a copy, so a reload would lose any edits.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   /** Puts the editor back to holding nothing, on disk as well as on screen. */
@@ -219,11 +236,15 @@ export function Editor() {
 
   useEffect(() => {
     let live = true;
+    setLoading(true);
     reopenSession().then(restored => {
-      if (!live || !restored || !restoreWanted.current) return;
-      setFile(restored.file);
-      setCommands(restored.commands);
-      if (restored.saved) setSavedAt(restored.commands);
+      if (!live) return;
+      if (restored && restoreWanted.current) {
+        setFile(restored.file);
+        setCommands(restored.commands);
+        if (restored.saved) setSavedAt(restored.commands);
+      }
+      setLoading(false);
     });
     return () => {
       live = false;
@@ -324,6 +345,7 @@ export function Editor() {
         }}
       />
       {notice && <Notice text={notice} onDismiss={() => setNotice(null)} />}
+      {loading && <Spinner />}
       {file && width > 0 && (
         // Keyed by the opening, so a new file gets new pages rather than the last file's leftovers.
         // Exactly as wide as the widest page, so its corner is the pages' own corner wherever the
