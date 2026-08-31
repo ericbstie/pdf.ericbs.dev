@@ -1,7 +1,7 @@
 import { type Page, expect, test } from "@playwright/test";
-import { buildPlainPdf } from "../fixtures";
+import { FLAT_BOXES, buildFlatCheckboxPdf, buildPlainPdf } from "../fixtures";
 import { readTextPlacements } from "../verify";
-import { darkPixels, openPdf, savePdf, viewportPoint } from "./harness";
+import { centerOf, darkPixels, openPdf, savePdf, viewportPoint } from "./harness";
 
 /** Where the words are written, in PDF space, and the patch of paper they land on. */
 const AT = { x: 200, y: 400 };
@@ -125,4 +125,43 @@ test("undo puts a carried writing back where it was", async ({ page }) => {
   await page.locator('[data-action="undo"]').click();
   await expect.poll(() => darkPixels(page, BLANK)).toBeGreaterThan(50);
   await expect.poll(() => darkPixels(page, MOVED)).toBe(0);
+});
+
+test("a writing dragged off the edge is kept on the page", async ({ page }) => {
+  await writeAndSelect(page);
+  const from = await viewportPoint(page, AT);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  // Well past the left edge of the sheet, which pointer capture lets the drag follow.
+  await page.mouse.move(4, from.y, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(() => darkPixels(page, { x: 0, y: 390, width: 130, height: 20 })).toBeGreaterThan(50);
+  const written = (await readTextPlacements(await savePdf(page))).find(item => item.text === "Paid in full");
+  expect(written).toBeDefined();
+  expect(written!.x).toBeCloseTo(0, 0);
+});
+
+test("a checkbox ticked while the caret is open is the thing the next undo takes back", async ({ page }) => {
+  await openPdf(page, await buildFlatCheckboxPdf());
+  await writeAt(page, "Paid");
+  await page.locator('[data-tool="text"]').click();
+  const spot = await viewportPoint(page, AT);
+  await page.mouse.click(spot.x, spot.y);
+  await page.locator('[data-testid="text-selection"]').waitFor();
+  await page.mouse.click(spot.x, spot.y);
+  await expect(page.locator('[data-testid="text-input"]')).toHaveValue("Paid");
+  await page.keyboard.press("End");
+  await page.keyboard.type(" in full");
+
+  // Clicking the box is what closes the caret, so the two commands are made in the one gesture.
+  const box = FLAT_BOXES[0]!;
+  const bare = await darkPixels(page, box);
+  const tick = await viewportPoint(page, centerOf(box));
+  await page.mouse.click(tick.x, tick.y);
+  await expect.poll(() => darkPixels(page, box)).toBeGreaterThan(bare + 20);
+
+  await page.locator('[data-action="undo"]').click();
+  await expect.poll(() => darkPixels(page, box)).toBeLessThan(bare + 20);
+  const written = (await readTextPlacements(await savePdf(page))).map(item => item.text);
+  expect(written).toContain("Paid in full");
 });
