@@ -82,7 +82,7 @@ function paintEach<Mark extends { page: number }>(
 }
 
 export async function exportPdf(source: Uint8Array, marks: Marks): Promise<Uint8Array> {
-  const doc = await PDFDocument.load(source);
+  const doc = await PDFDocument.load(source, { ignoreEncryption: true });
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const form = doc.getForm();
   const sheets = doc.getPages().map(sheetOf);
