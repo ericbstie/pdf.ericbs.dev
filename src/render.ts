@@ -4,6 +4,9 @@ import { WRITING_FONT } from "./writing";
 
 const INK = "#0d0d0d";
 
+/** What a page is, under everything printed on it. */
+const PAPER = "#ffffff";
+
 /** Light enough to read as a highlight over anything already printed there. */
 const HOVER = "rgba(59, 130, 246, 0.18)";
 
@@ -28,6 +31,19 @@ function tickInk(context: CanvasRenderingContext2D, box: Box): void {
   context.lineCap = "round";
   context.lineJoin = "round";
   context.stroke(new Path2D(checkPath(box.rect)));
+}
+
+/**
+ * A tick the file arrived with is in the painting of the page itself, so taking it back means
+ * covering it. Only the inside of the box is covered: its outline is not part of the tick. The
+ * saved file goes nowhere near here — there the field is cleared and the file redraws it.
+ */
+function clearInk(context: CanvasRenderingContext2D, box: Box): void {
+  const { x, y, width, height } = box.rect;
+  const outline = checkWidth(box.rect);
+  context.fillStyle = PAPER;
+  context.fillRect(x + outline, y + outline, Math.max(0, width - outline * 2), Math.max(0, height - outline * 2));
+  context.fillStyle = INK;
 }
 
 function highlight(context: CanvasRenderingContext2D, box: Box): void {
@@ -55,6 +71,7 @@ export function paintPage(context: CanvasRenderingContext2D, paint: PagePaint): 
   context.setTransform(density, 0, 0, density, -at.x * density, -at.y * density);
   context.strokeStyle = INK;
   context.fillStyle = INK;
+  paint.marks.unticks.forEach(box => clearInk(context, box));
   if (paint.hovered) highlight(context, paint.hovered);
   paint.marks.strokes.forEach(stroke => strokeInk(context, stroke));
   paint.marks.writings.forEach(writing => writeInk(context, writing));

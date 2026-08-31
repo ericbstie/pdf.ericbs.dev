@@ -4,7 +4,7 @@ import { countPaintOps, readCheckboxStates, readPathCorners, readTextPlacements,
 import type { Box, Marks } from "./edits";
 import { exportPdf } from "./export";
 
-const nothing: Marks = { strokes: [], writings: [], ticks: [] };
+const nothing: Marks = { strokes: [], writings: [], ticks: [], unticks: [] };
 
 /** Fixture rects are in PDF space; marks are in page space, so flip the y axis. */
 function asPageBox(rect: (typeof FLAT_BOXES)[number], field?: string): Box {
@@ -12,7 +12,7 @@ function asPageBox(rect: (typeof FLAT_BOXES)[number], field?: string): Box {
 }
 
 test("writing lands where it was placed", async () => {
-  const saved = await exportPdf(await buildPlainPdf(), {
+  const { bytes: saved } = await exportPdf(await buildPlainPdf(), {
     ...nothing,
     writings: [{ id: "one", page: 1, at: { x: 200, y: 492 }, text: "Paid in full", size: 14 }],
   });
@@ -23,21 +23,53 @@ test("writing lands where it was placed", async () => {
 });
 
 test("the original content survives", async () => {
-  const saved = await exportPdf(await buildPlainPdf(), nothing);
+  const { bytes: saved } = await exportPdf(await buildPlainPdf(), nothing);
   expect((await readTextPlacements(saved)).map(item => item.text)).toContain("Rental agreement");
 });
 
 test("a ticked form checkbox becomes a field value", async () => {
-  const saved = await exportPdf(await buildFormCheckboxPdf(), {
+  const { bytes: saved } = await exportPdf(await buildFormCheckboxPdf(), {
     ...nothing,
     ticks: [asPageBox(FORM_BOXES[0]!, "agree")],
   });
   expect(await readCheckboxStates(saved)).toEqual(new Map([["agree", true], ["subscribe", false]]));
 });
 
+test("a form checkbox the file arrived ticked is cleared", async () => {
+  const source = await buildFormCheckboxPdf(["agree"]);
+  expect(await readCheckboxStates(source)).toEqual(new Map([["agree", true], ["subscribe", false]]));
+  const saved = await exportPdf(source, {
+    ...nothing,
+    unticks: [{ ...asPageBox(FORM_BOXES[0]!, "agree"), ticked: true }],
+  });
+  expect(await readCheckboxStates(saved.bytes)).toEqual(new Map([["agree", false], ["subscribe", false]]));
+  expect(saved.refused).toBe(0);
+});
+
+test("a tick the file will not let go of is saved anyway, and counted", async () => {
+  const source = await buildFormCheckboxPdf(["agree"]);
+  const saved = await exportPdf(source, {
+    ...nothing,
+    unticks: [{ ...asPageBox(FORM_BOXES[0]!, "not a field here"), ticked: true }],
+  });
+  expect(saved.refused).toBe(1);
+  expect(await readCheckboxStates(saved.bytes)).toEqual(new Map([["agree", true], ["subscribe", false]]));
+});
+
+test("a printed checkbox is never painted over to clear it", async () => {
+  const source = await buildFlatCheckboxPdf();
+  const saved = await exportPdf(source, {
+    ...nothing,
+    unticks: [{ ...asPageBox(FLAT_BOXES[0]!), ticked: true }],
+  });
+  expect(await countPaintOps(saved.bytes)).toEqual(await countPaintOps(source));
+  // Nothing was painted over, and nothing pretends otherwise: the tick is still there to be counted.
+  expect(saved.refused).toBe(1);
+});
+
 test("a printed checkbox gets a stroked tick stamped over it", async () => {
   const source = await buildFlatCheckboxPdf();
-  const saved = await exportPdf(source, { ...nothing, ticks: [asPageBox(FLAT_BOXES[0]!)] });
+  const { bytes: saved } = await exportPdf(source, { ...nothing, ticks: [asPageBox(FLAT_BOXES[0]!)] });
   const before = await countPaintOps(source);
   const after = await countPaintOps(saved);
   expect(after.stroked).toBe(before.stroked + 1);
@@ -46,7 +78,7 @@ test("a printed checkbox gets a stroked tick stamped over it", async () => {
 
 test("a drawn stroke is stroked, not filled", async () => {
   const source = await buildPlainPdf();
-  const saved = await exportPdf(source, {
+  const { bytes: saved } = await exportPdf(source, {
     ...nothing,
     strokes: [{ page: 1, points: [{ x: 10, y: 10 }, { x: 90, y: 40 }], width: 2 }],
   });
@@ -57,7 +89,7 @@ test("a drawn stroke is stroked, not filled", async () => {
 });
 
 test("marks aimed past the last page are dropped", async () => {
-  const saved = await exportPdf(await buildPlainPdf(), {
+  const { bytes: saved } = await exportPdf(await buildPlainPdf(), {
     ...nothing,
     strokes: [{ page: 7, points: [{ x: 0, y: 0 }], width: 2 }],
   });
@@ -67,7 +99,7 @@ test("marks aimed past the last page are dropped", async () => {
 for (const rotation of [0, 90, 180, 270]) {
   test(`writing lands where it was placed on a page turned ${rotation} degrees`, async () => {
     const at = { x: 120, y: 200 };
-    const saved = await exportPdf(await buildRotatedPdf(rotation), {
+    const { bytes: saved } = await exportPdf(await buildRotatedPdf(rotation), {
       ...nothing,
       writings: [{ id: "one", page: 1, at, text: "Paid in full", size: 14 }],
     });
@@ -82,7 +114,7 @@ for (const rotation of [0, 90, 180, 270]) {
 for (const rotation of [0, 90, 180, 270]) {
   test(`ink lands where it was drawn on a page turned ${rotation} degrees`, async () => {
     const at = { x: 120, y: 200 };
-    const saved = await exportPdf(await buildRotatedPdf(rotation), {
+    const { bytes: saved } = await exportPdf(await buildRotatedPdf(rotation), {
       ...nothing,
       strokes: [{ page: 1, points: [at], width: 3 }],
     });

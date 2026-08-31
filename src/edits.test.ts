@@ -4,6 +4,10 @@ import { type Box, type Command, type Writing, marksFrom, marksOnPage, withoutLa
 /** Boxes are told apart by where they sit, so each one gets a place of its own. */
 const box = (at: number): Box => ({ page: 1, rect: { x: at * 40, y: 0, width: 10, height: 10 } });
 const toggle = (at: number): Command => ({ kind: "toggle", box: box(at) });
+const toggleOf = (box: Box): Command => ({ kind: "toggle", box });
+
+/** A form checkbox the file was already carrying a tick in. Fields are told apart by name. */
+const arrived: Box = { page: 1, field: "agree", rect: { x: 0, y: 0, width: 10, height: 10 }, ticked: true };
 const draw: Command = { kind: "draw", stroke: { page: 1, points: [{ x: 0, y: 0 }], width: 2 } };
 const writing = (id: string, at = { x: 5, y: 5 }, text = "hi"): Writing => ({ id, page: 1, at, text, size: 14 });
 const write: Command = { kind: "write", writing: writing("one") };
@@ -17,6 +21,25 @@ describe("marksFrom", () => {
 
   test("a single toggle ticks the box", () => {
     expect(marksFrom([toggle(1)]).ticks).toEqual([box(1)]);
+  });
+
+  test("one field shown on two pages is one box, turned over by either", () => {
+    const overleaf: Box = { ...arrived, page: 2, ticked: false };
+    const here: Box = { ...arrived, ticked: false };
+    expect(marksFrom([toggleOf(here)]).ticks).toEqual([here]);
+    expect(marksFrom([toggleOf(here), toggleOf(overleaf)]).ticks).toEqual([]);
+  });
+
+  test("a box the file arrived ticked is cleared rather than ticked again", () => {
+    const marks = marksFrom([toggleOf(arrived)]);
+    expect(marks.ticks).toEqual([]);
+    expect(marks.unticks).toEqual([arrived]);
+  });
+
+  test("a second toggle leaves a box the file arrived ticked as the file had it", () => {
+    const marks = marksFrom([toggleOf(arrived), toggleOf(arrived)]);
+    expect(marks.ticks).toEqual([]);
+    expect(marks.unticks).toEqual([]);
   });
 
   test("a second toggle unticks it", () => {
@@ -92,8 +115,11 @@ test("marksOnPage keeps only what belongs to that page", () => {
     draw,
     { kind: "draw", stroke: { page: 2, points: [{ x: 0, y: 0 }], width: 2 } },
     toggle(1),
+    toggleOf({ ...arrived, page: 2 }),
   ]);
   expect(marksOnPage(marks, 2).strokes).toHaveLength(1);
   expect(marksOnPage(marks, 2).ticks).toEqual([]);
   expect(marksOnPage(marks, 1).ticks).toHaveLength(1);
+  expect(marksOnPage(marks, 1).unticks).toEqual([]);
+  expect(marksOnPage(marks, 2).unticks).toHaveLength(1);
 });

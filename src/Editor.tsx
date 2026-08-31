@@ -208,8 +208,10 @@ export function Editor() {
   const save = async (): Promise<void> => {
     if (!file) return;
     try {
-      downloadFile(await exportPdf(file.bytes, marks), file.name);
+      const saved = await exportPdf(file.bytes, marks);
+      downloadFile(saved.bytes, file.name);
       setSavedAt(commands);
+      if (saved.refused > 0) setNotice("This PDF would not let a ticked box be cleared, so the saved copy still has it ticked.");
     } catch {
       setNotice("This PDF could not be saved.");
     }

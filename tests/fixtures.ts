@@ -54,11 +54,14 @@ export async function buildFlatCheckboxPdf(): Promise<Uint8Array> {
   return doc.save();
 }
 
-export async function buildFormCheckboxPdf(): Promise<Uint8Array> {
+/** `ticked` names the fields the file is to arrive with already ticked, as a part-filled form does. */
+export async function buildFormCheckboxPdf(ticked: readonly string[] = []): Promise<Uint8Array> {
   const { doc, page } = await startPage();
   const form = doc.getForm();
   for (const { name, ...rect } of FORM_BOXES) {
-    form.createCheckBox(name).addToPage(page, rect);
+    const box = form.createCheckBox(name);
+    box.addToPage(page, rect);
+    if (ticked.includes(name)) box.check();
   }
   return doc.save();
 }
