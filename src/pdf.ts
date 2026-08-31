@@ -64,6 +64,11 @@ function toViewSpace(pdfRect: number[], viewport: PageViewport): Rect {
   return { x: Math.min(x1, x2), y: Math.min(y1, y2), width: Math.abs(x2 - x1), height: Math.abs(y2 - y1) };
 }
 
+/** A checkbox widget is ticked when its value is the name its own appearance uses for being on. */
+function isTicked(annotation: { fieldValue?: unknown; exportValue?: unknown }): boolean {
+  return typeof annotation.exportValue === "string" && annotation.fieldValue === annotation.exportValue;
+}
+
 async function widgetBoxes(page: PDFPageProxy, viewport: PageViewport): Promise<Box[]> {
   const annotations = await page.getAnnotations();
   return annotations
@@ -71,6 +76,7 @@ async function widgetBoxes(page: PDFPageProxy, viewport: PageViewport): Promise<
     .map(annotation => ({
       page: page.pageNumber,
       field: annotation.fieldName as string,
+      ticked: isTicked(annotation),
       rect: toViewSpace(annotation.rect, viewport),
     }));
 }

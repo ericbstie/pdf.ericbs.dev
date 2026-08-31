@@ -4,7 +4,7 @@ import { countPaintOps, readCheckboxStates, readPathCorners, readTextPlacements,
 import type { Box, Marks } from "./edits";
 import { exportPdf } from "./export";
 
-const nothing: Marks = { strokes: [], writings: [], ticks: [] };
+const nothing: Marks = { strokes: [], writings: [], ticks: [], unticks: [] };
 
 /** Fixture rects are in PDF space; marks are in page space, so flip the y axis. */
 function asPageBox(rect: (typeof FLAT_BOXES)[number], field?: string): Box {
@@ -33,6 +33,25 @@ test("a ticked form checkbox becomes a field value", async () => {
     ticks: [asPageBox(FORM_BOXES[0]!, "agree")],
   });
   expect(await readCheckboxStates(saved)).toEqual(new Map([["agree", true], ["subscribe", false]]));
+});
+
+test("a form checkbox the file arrived ticked is cleared", async () => {
+  const source = await buildFormCheckboxPdf(["agree"]);
+  expect(await readCheckboxStates(source)).toEqual(new Map([["agree", true], ["subscribe", false]]));
+  const saved = await exportPdf(source, {
+    ...nothing,
+    unticks: [{ ...asPageBox(FORM_BOXES[0]!, "agree"), ticked: true }],
+  });
+  expect(await readCheckboxStates(saved)).toEqual(new Map([["agree", false], ["subscribe", false]]));
+});
+
+test("a printed checkbox is never painted over to clear it", async () => {
+  const source = await buildFlatCheckboxPdf();
+  const saved = await exportPdf(source, {
+    ...nothing,
+    unticks: [{ ...asPageBox(FLAT_BOXES[0]!), ticked: true }],
+  });
+  expect(await countPaintOps(saved)).toEqual(await countPaintOps(source));
 });
 
 test("a printed checkbox gets a stroked tick stamped over it", async () => {

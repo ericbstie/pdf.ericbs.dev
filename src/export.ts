@@ -54,10 +54,12 @@ function drawWriting(sheet: Sheet, writing: Writing, font: PDFFont): void {
   });
 }
 
-/** Reports whether the file carries a checkbox field of that name to tick. */
-function tickField(form: PDFForm, name: string): boolean {
+/** Reports whether the file carries a checkbox field of that name to put in that state. */
+function setField(form: PDFForm, name: string, ticked: boolean): boolean {
   try {
-    form.getCheckBox(name).check();
+    const checkBox = form.getCheckBox(name);
+    if (ticked) checkBox.check();
+    else checkBox.uncheck();
     return true;
   } catch {
     return false;
@@ -65,8 +67,17 @@ function tickField(form: PDFForm, name: string): boolean {
 }
 
 function tickBox(form: PDFForm, sheet: Sheet, box: Box): void {
-  if (box.field && tickField(form, box.field)) return;
+  if (box.field && setField(form, box.field, true)) return;
   stampTick(sheet, box);
+}
+
+/**
+ * Clearing reaches a field and no further: the file drew that tick and the file redraws the box
+ * without it. A printed tick is ink on the page like any other, and painting over somebody else's
+ * scan is a different kind of edit from adding to it — so a printed box is only ever ticked.
+ */
+function untickBox(form: PDFForm, box: Box): void {
+  if (box.field) setField(form, box.field, false);
 }
 
 /** Paints marks onto the pages they belong to, ignoring any that point past the end of the file. */
@@ -89,5 +100,6 @@ export async function exportPdf(source: Uint8Array, marks: Marks): Promise<Uint8
   paintEach(sheets, marks.strokes, drawStroke);
   paintEach(sheets, marks.writings, (sheet, writing) => drawWriting(sheet, writing, font));
   paintEach(sheets, marks.ticks, (sheet, box) => tickBox(form, sheet, box));
+  paintEach(sheets, marks.unticks, (_sheet, box) => untickBox(form, box));
   return doc.save();
 }

@@ -9,8 +9,12 @@ export type Stroke = { page: number; points: readonly Point[]; width: number };
 /** `id` is the name a later command calls it by, to move it, reword it, or take it away. */
 export type Writing = { id: string; page: number; at: Point; text: string; size: number };
 
-/** A checkbox found on a page. `field` names the AcroForm field behind it, when there is one. */
-export type Box = { page: number; rect: Rect; field?: string };
+/**
+ * A checkbox found on a page. `field` names the AcroForm field behind it, when there is one, and
+ * `ticked` is the state the file was found holding it in — which only a field is ever ticked in,
+ * since a printed square is recognised by having nothing inside it.
+ */
+export type Box = { page: number; rect: Rect; field?: string; ticked?: boolean };
 
 export type Command =
   | { kind: "draw"; stroke: Stroke }
@@ -19,10 +23,12 @@ export type Command =
   | { kind: "erase"; id: string }
   | { kind: "toggle"; box: Box };
 
+/** `unticks` are the boxes the file arrived with ticked and the user has since cleared. */
 export type Marks = {
   strokes: readonly Stroke[];
   writings: readonly Writing[];
   ticks: readonly Box[];
+  unticks: readonly Box[];
 };
 
 /** Enough to tell one of anything from the next. `randomUUID` is absent outside a secure context. */
@@ -41,6 +47,7 @@ function sameBox(one: Box, other: Box): boolean {
   return overlaps(one.rect, other.rect);
 }
 
+/** The boxes standing away from how the file had them: the ones touched an odd number of times. */
 function foldToggles(toggles: readonly Box[]): Box[] {
   const ticked: Box[] = [];
   for (const box of toggles) {
@@ -67,16 +74,24 @@ function foldWritings(commands: readonly Command[]): Writing[] {
 }
 
 export function marksFrom(commands: readonly Command[]): Marks {
+  const flipped = foldToggles(commands.flatMap(command => (command.kind === "toggle" ? [command.box] : [])));
   return {
     strokes: commands.flatMap(command => (command.kind === "draw" ? [command.stroke] : [])),
     writings: foldWritings(commands),
-    ticks: foldToggles(commands.flatMap(command => (command.kind === "toggle" ? [command.box] : []))),
+    // A toggle turns a box away from the state it was found in, so one found ticked comes back cleared.
+    ticks: flipped.filter(box => !box.ticked),
+    unticks: flipped.filter(box => box.ticked),
   };
 }
 
 export function marksOnPage(marks: Marks, pageNumber: number): Marks {
   const here = <Mark extends { page: number }>(items: readonly Mark[]) => items.filter(item => item.page === pageNumber);
-  return { strokes: here(marks.strokes), writings: here(marks.writings), ticks: here(marks.ticks) };
+  return {
+    strokes: here(marks.strokes),
+    writings: here(marks.writings),
+    ticks: here(marks.ticks),
+    unticks: here(marks.unticks),
+  };
 }
 
 export function withoutLast(commands: readonly Command[]): Command[] {
