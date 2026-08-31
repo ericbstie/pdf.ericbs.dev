@@ -37,14 +37,15 @@ export function newId(): string {
 }
 
 /**
- * Two sightings of the same box. A form field answers to its name; a printed square is only ever
- * a place on the page, and it is recognised by being in that place — detection can shift it by a
- * fraction of a point between one painting and the next, and no two checkboxes share a spot.
+ * Two sightings of the same box. A form field answers to its name, and to nothing else: one
+ * field can be shown on more than one page, and clicking either of its boxes is the same field
+ * being turned over. A printed square is only ever a place on a page, and it is recognised by
+ * being in that place — detection can shift it by a fraction of a point between one painting and
+ * the next, and no two checkboxes share a spot.
  */
 function sameBox(one: Box, other: Box): boolean {
-  if (one.page !== other.page) return false;
   if (one.field !== undefined || other.field !== undefined) return one.field === other.field;
-  return overlaps(one.rect, other.rect);
+  return one.page === other.page && overlaps(one.rect, other.rect);
 }
 
 /** The boxes standing away from how the file had them: the ones touched an odd number of times. */

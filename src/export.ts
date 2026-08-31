@@ -75,9 +75,13 @@ function tickBox(form: PDFForm, sheet: Sheet, box: Box): void {
  * Clearing reaches a field and no further: the file drew that tick and the file redraws the box
  * without it. A printed tick is ink on the page like any other, and painting over somebody else's
  * scan is a different kind of edit from adding to it — so a printed box is only ever ticked.
+ *
+ * Reports whether the tick came back out. A tick has no second way in: where a field refuses to
+ * be ticked the mark is stamped over it instead, but nothing can stand in for taking one back,
+ * and the saved copy would otherwise disagree with the screen without saying so.
  */
-function untickBox(form: PDFForm, box: Box): void {
-  if (box.field) setField(form, box.field, false);
+function untickBox(form: PDFForm, box: Box): boolean {
+  return box.field !== undefined && setField(form, box.field, false);
 }
 
 /** Paints marks onto the pages they belong to, ignoring any that point past the end of the file. */
@@ -92,7 +96,10 @@ function paintEach<Mark extends { page: number }>(
   }
 }
 
-export async function exportPdf(source: Uint8Array, marks: Marks): Promise<Uint8Array> {
+/** The saved file, and how many ticks it would not let be taken back out of it. */
+export type Saved = { bytes: Uint8Array; refused: number };
+
+export async function exportPdf(source: Uint8Array, marks: Marks): Promise<Saved> {
   const doc = await PDFDocument.load(source, { ignoreEncryption: true });
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const form = doc.getForm();
@@ -100,6 +107,9 @@ export async function exportPdf(source: Uint8Array, marks: Marks): Promise<Uint8
   paintEach(sheets, marks.strokes, drawStroke);
   paintEach(sheets, marks.writings, (sheet, writing) => drawWriting(sheet, writing, font));
   paintEach(sheets, marks.ticks, (sheet, box) => tickBox(form, sheet, box));
-  paintEach(sheets, marks.unticks, (_sheet, box) => untickBox(form, box));
-  return doc.save();
+  let refused = 0;
+  paintEach(sheets, marks.unticks, (_sheet, box) => {
+    if (!untickBox(form, box)) refused += 1;
+  });
+  return { bytes: await doc.save(), refused };
 }

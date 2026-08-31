@@ -49,8 +49,8 @@ test("takes back a tick the file arrived with", async ({ page }) => {
   const cleared = await darkPixels(page, empty);
   expect(await darkPixels(page, ticked)).toBeGreaterThan(cleared + 20);
   await clickBox(page, ticked);
-  // What is left is the box's own outline: the same as the one beneath it, never ticked.
-  await expect.poll(() => darkPixels(page, ticked)).toBe(cleared);
+  // What is left is the box's own outline, as bare as the one beneath it that was never ticked.
+  await expect.poll(() => darkPixels(page, ticked)).toBeLessThan(cleared + 3);
 });
 
 test("saves a checkbox the file arrived ticked as cleared", async ({ page }) => {

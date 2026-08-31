@@ -23,6 +23,13 @@ describe("marksFrom", () => {
     expect(marksFrom([toggle(1)]).ticks).toEqual([box(1)]);
   });
 
+  test("one field shown on two pages is one box, turned over by either", () => {
+    const overleaf: Box = { ...arrived, page: 2, ticked: false };
+    const here: Box = { ...arrived, ticked: false };
+    expect(marksFrom([toggleOf(here)]).ticks).toEqual([here]);
+    expect(marksFrom([toggleOf(here), toggleOf(overleaf)]).ticks).toEqual([]);
+  });
+
   test("a box the file arrived ticked is cleared rather than ticked again", () => {
     const marks = marksFrom([toggleOf(arrived)]);
     expect(marks.ticks).toEqual([]);

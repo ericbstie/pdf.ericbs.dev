@@ -42,7 +42,7 @@ function clearInk(context: CanvasRenderingContext2D, box: Box): void {
   const { x, y, width, height } = box.rect;
   const outline = checkWidth(box.rect);
   context.fillStyle = PAPER;
-  context.fillRect(x + outline, y + outline, width - outline * 2, height - outline * 2);
+  context.fillRect(x + outline, y + outline, Math.max(0, width - outline * 2), Math.max(0, height - outline * 2));
   context.fillStyle = INK;
 }
 
