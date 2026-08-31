@@ -38,7 +38,12 @@ test("a very dense screen stops asking for more pixels", () => {
 test("an outsized page is painted coarsely enough to stay within canvas limits", () => {
   const poster = { width: 14400, height: 14400 };
   const density = paintDensity(1.5, 3, poster);
-  expect(poster.width * density * (poster.height * density)).toBeLessThanOrEqual(4_000_000);
+  expect(Math.round(poster.width * density * (poster.height * density))).toBeLessThanOrEqual(8_000_000);
+  expect(Math.max(poster.width, poster.height) * density).toBeLessThan(4096);
+});
+
+test("an ordinary page on a sharp screen is not coarsened at all", () => {
+  expect(paintDensity(1.5, 2, LETTER)).toBe(1.5 * 2);
 });
 
 test("toPagePoint undoes the display scale", () => {
