@@ -132,6 +132,7 @@ export function PageView({ pdf, number, size, scale, pixelRatio, within, marks, 
   useEffect(() => {
     if (!approached) return;
     let live = true;
+    setUnpaintable(false);
     pdf.render(number, density).then(
       page => {
         if (live) setRendered(page);
