@@ -196,3 +196,23 @@ test("a file dropped while a restore is still running is the one that survives",
   await page.reload();
   await expect(sheets(page)).toHaveCount(2);
 });
+
+test("a restored tick can be cleared by tapping it again, at another window size", async ({ page }) => {
+  await openPdf(page, await buildFlatCheckboxPdf());
+  const box = FLAT_BOXES[0]!;
+  const unticked = await darkPixels(page, box);
+  const point = await viewportPoint(page, centerOf(box));
+  await page.mouse.click(point.x, point.y);
+  await expect.poll(() => darkPixels(page, box)).toBeGreaterThan(unticked + 20);
+
+  // Another width means another paint density, and so a box detected a shade off where it was.
+  await page.setViewportSize({ width: 1000, height: 720 });
+  await page.reload();
+  await expect(pageCanvas(page)).toBeVisible();
+  await expect.poll(() => darkPixels(page, box)).toBeGreaterThan(unticked + 20);
+
+  // Tapping it has to clear the tick, not stamp a second one over the first.
+  const again = await viewportPoint(page, centerOf(box));
+  await page.mouse.click(again.x, again.y);
+  await expect.poll(() => darkPixels(page, box)).toBe(unticked);
+});

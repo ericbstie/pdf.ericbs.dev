@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import type { Box } from "./edits";
 import { boxAt, fitScale, overlaps, paintDensity, reachFor, toPagePoint, widestPage } from "./viewport";
 
-const box: Box = { page: 1, id: "a", rect: { x: 100, y: 200, width: 14, height: 14 } };
+const box: Box = { page: 1, rect: { x: 100, y: 200, width: 14, height: 14 } };
 const LETTER = { width: 612, height: 792 };
 
 test("a narrow window shrinks the page to fit", () => {
@@ -25,6 +25,7 @@ test("the widest page decides the scale", () => {
 
 test("a file with no pages has no width to fit", () => {
   expect(widestPage([])).toBe(0);
+  expect(fitScale(1280, widestPage([]))).toBe(1);
 });
 
 test("a dense screen paints sharper than a plain one", () => {
