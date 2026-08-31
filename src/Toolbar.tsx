@@ -1,8 +1,18 @@
 export type Tool = "draw" | "text" | null;
 
 const ICON = "size-5 stroke-current fill-none stroke-[1.6] [stroke-linecap:round] [stroke-linejoin:round]";
+
+/** Eleven units across: the smallest target a thumb hits reliably. */
 const BUTTON =
-  "size-10 grid place-items-center rounded-full text-neutral-300 transition-colors hover:bg-white/10 hover:text-white aria-pressed:bg-white/20 aria-pressed:text-white";
+  "size-11 grid place-items-center rounded-full text-neutral-300 touch-manipulation transition-colors hover:bg-white/10 hover:text-white aria-pressed:bg-white/20 aria-pressed:text-white disabled:pointer-events-none disabled:opacity-30";
+
+function OpenIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className={ICON} aria-hidden="true">
+      <path d="M4 7a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
+    </svg>
+  );
+}
 
 function PenIcon() {
   return (
@@ -21,6 +31,15 @@ function TextIcon() {
   );
 }
 
+function UndoIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className={ICON} aria-hidden="true">
+      <path d="M9 14l-4-4 4-4" />
+      <path d="M5 10h9a5 5 0 0 1 0 10h-4" />
+    </svg>
+  );
+}
+
 function DownloadIcon() {
   return (
     <svg viewBox="0 0 24 24" className={ICON} aria-hidden="true">
@@ -32,22 +51,36 @@ function DownloadIcon() {
 type Props = {
   tool: Tool;
   onTool: (tool: Tool) => void;
+  onOpen: () => void;
+  onUndo: () => void;
+  canUndo: boolean;
   onSave: () => void;
 };
 
-export function Toolbar({ tool, onTool, onSave }: Props) {
+export function Toolbar({ tool, onTool, onOpen, onUndo, canUndo, onSave }: Props) {
   const pick = (wanted: Exclude<Tool, null>) => () => onTool(tool === wanted ? null : wanted);
   return (
-    <div className="fixed bottom-6 left-1/2 flex -translate-x-1/2 gap-1 rounded-full bg-neutral-900/90 p-1.5 shadow-xl ring-1 ring-white/10 backdrop-blur">
-      <button type="button" data-tool="draw" aria-label="Draw" aria-pressed={tool === "draw"} className={BUTTON} onClick={pick("draw")}>
-        <PenIcon />
-      </button>
-      <button type="button" data-tool="text" aria-label="Write" aria-pressed={tool === "text"} className={BUTTON} onClick={pick("text")}>
-        <TextIcon />
-      </button>
-      <button type="button" data-action="save" aria-label="Download" className={BUTTON} onClick={onSave}>
-        <DownloadIcon />
-      </button>
+    <div
+      className="fixed bottom-0 left-1/2 -translate-x-1/2"
+      style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}
+    >
+      <div className="flex gap-1 rounded-full bg-neutral-900/90 p-1.5 shadow-xl ring-1 ring-white/10 backdrop-blur">
+        <button type="button" data-action="open" aria-label="Open another PDF" className={BUTTON} onClick={onOpen}>
+          <OpenIcon />
+        </button>
+        <button type="button" data-tool="draw" aria-label="Draw" aria-pressed={tool === "draw"} className={BUTTON} onClick={pick("draw")}>
+          <PenIcon />
+        </button>
+        <button type="button" data-tool="text" aria-label="Write" aria-pressed={tool === "text"} className={BUTTON} onClick={pick("text")}>
+          <TextIcon />
+        </button>
+        <button type="button" data-action="undo" aria-label="Undo" disabled={!canUndo} className={BUTTON} onClick={onUndo}>
+          <UndoIcon />
+        </button>
+        <button type="button" data-action="save" aria-label="Download" className={BUTTON} onClick={onSave}>
+          <DownloadIcon />
+        </button>
+      </div>
     </div>
   );
 }
