@@ -5,7 +5,9 @@ export type Point = { x: number; y: number };
 export type Rect = { x: number; y: number; width: number; height: number };
 
 export type Stroke = { page: number; points: readonly Point[]; width: number };
-export type Writing = { page: number; at: Point; text: string; size: number };
+
+/** `id` is the name a later command calls it by, to move it, reword it, or take it away. */
+export type Writing = { id: string; page: number; at: Point; text: string; size: number };
 
 /** A checkbox found on a page. `field` names the AcroForm field behind it, when there is one. */
 export type Box = { page: number; rect: Rect; field?: string };
@@ -13,6 +15,8 @@ export type Box = { page: number; rect: Rect; field?: string };
 export type Command =
   | { kind: "draw"; stroke: Stroke }
   | { kind: "write"; writing: Writing }
+  | { kind: "revise"; writing: Writing }
+  | { kind: "erase"; id: string }
   | { kind: "toggle"; box: Box };
 
 export type Marks = {
@@ -20,6 +24,11 @@ export type Marks = {
   writings: readonly Writing[];
   ticks: readonly Box[];
 };
+
+/** Enough to tell one of anything from the next. `randomUUID` is absent outside a secure context. */
+export function newId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 /**
  * Two sightings of the same box. A form field answers to its name; a printed square is only ever
@@ -42,10 +51,25 @@ function foldToggles(toggles: readonly Box[]): Box[] {
   return ticked;
 }
 
+/**
+ * The writings as they stand after every revision: one for each id, in the order they were first
+ * written, since a map keeps a key where it first put it. A revision only reaches a writing that
+ * is still there, so undoing back past an erasure cannot bring one back by a later revision.
+ */
+function foldWritings(commands: readonly Command[]): Writing[] {
+  const kept = new Map<string, Writing>();
+  for (const command of commands) {
+    if (command.kind === "write") kept.set(command.writing.id, command.writing);
+    if (command.kind === "revise" && kept.has(command.writing.id)) kept.set(command.writing.id, command.writing);
+    if (command.kind === "erase") kept.delete(command.id);
+  }
+  return [...kept.values()];
+}
+
 export function marksFrom(commands: readonly Command[]): Marks {
   return {
     strokes: commands.flatMap(command => (command.kind === "draw" ? [command.stroke] : [])),
-    writings: commands.flatMap(command => (command.kind === "write" ? [command.writing] : [])),
+    writings: foldWritings(commands),
     ticks: foldToggles(commands.flatMap(command => (command.kind === "toggle" ? [command.box] : []))),
   };
 }

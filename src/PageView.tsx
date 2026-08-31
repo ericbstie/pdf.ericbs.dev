@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { Box, Command, Marks, Point, Rect } from "./edits";
+import { type Box, type Command, type Marks, type Point, type Rect, type Writing, newId } from "./edits";
 import type { OpenPdf, PageSize, RenderedPage, RenderedPart } from "./pdf";
 import { paintPage } from "./render";
 import { keepEncodable } from "./text";
@@ -21,6 +21,7 @@ import {
   wholePageIsSharp,
   withBand,
 } from "./viewport";
+import { WRITING_FONT, textWidth, writingAt, writingRect } from "./writing";
 import { atScale } from "./zoom";
 
 const PEN_WIDTH = 2;
@@ -32,6 +33,15 @@ const KEEP_WITHIN = "300%";
 
 /** The finger or cursor a stroke belongs to, so a second one cannot join in halfway through. */
 type Drawing = { pointerId: number; points: Point[] };
+
+/**
+ * A writing being carried. `grab` is where the pointer came down and `origin` where the writing
+ * was, so the two of them together say how far it has been taken from where it started.
+ */
+type Carrying = { pointerId: number; id: string; grab: Point; origin: Point; at: Point };
+
+/** A caret open on the page: on a writing already there, by its id, or on bare paper at a point. */
+type Draft = { of: string | null; at: Point; words: string };
 
 type Props = {
   pdf: OpenPdf;
@@ -48,18 +58,31 @@ type Props = {
   within: RefObject<Element | null>;
   marks: Marks;
   tool: Tool;
+  /** The writing in hand anywhere in the document, so only the page holding it draws a box round it. */
+  selected: string | null;
+  onSelect: (id: string | null) => void;
   onCommand: (command: Command) => void;
 };
 
-function withDraft(marks: Marks, drawing: Drawing | null, page: number): Marks {
-  if (!drawing) return marks;
-  return { ...marks, strokes: [...marks.strokes, { page, points: drawing.points, width: PEN_WIDTH }] };
+/**
+ * The page as it stands this moment rather than as it has been committed: the stroke still under
+ * the pen, the writing still under the finger, and not the one whose letters are in the caret.
+ */
+function asShown(marks: Marks, page: number, drawing: Drawing | null, carrying: Carrying | null, editing: string | null): Marks {
+  return {
+    ...marks,
+    strokes: drawing ? [...marks.strokes, { page, points: drawing.points, width: PEN_WIDTH }] : marks.strokes,
+    writings: marks.writings.flatMap(writing => {
+      if (writing.id === editing) return [];
+      return [carrying && writing.id === carrying.id ? { ...writing, at: carrying.at } : writing];
+    }),
+  };
 }
 
-function cursorFor(tool: Tool, overBox: boolean): string {
+function cursorFor(tool: Tool, overSomething: boolean): string {
   if (tool === "draw") return "cursor-crosshair";
   if (tool === "text") return "cursor-text";
-  return overBox ? "cursor-pointer" : "cursor-default";
+  return overSomething ? "cursor-pointer" : "cursor-default";
 }
 
 /**
@@ -209,14 +232,69 @@ function WritingField({ at, settled, size, value, onChange, onCommit, onCancel }
         // Typed at a size the phone will not zoom into, then shrunk to the size it will print at.
         transform: `scale(${drawn / typed})`,
         transformOrigin: "top left",
-        fontFamily: "Helvetica, Arial, sans-serif",
+        fontFamily: WRITING_FONT,
       }}
       className="absolute bg-transparent p-0 text-neutral-900 caret-neutral-900 outline-none"
     />
   );
 }
 
-export function PageView({ pdf, number, size, settled, pixelRatio, within, marks, tool, onCommand }: Props) {
+type SelectionProps = {
+  rect: Rect;
+  onGrab: (event: ReactPointerEvent<HTMLElement>) => void;
+  onCarry: (event: ReactPointerEvent<HTMLElement>) => void;
+  onRelease: (event: ReactPointerEvent<HTMLElement>) => void;
+  onDrop: (event: ReactPointerEvent<HTMLElement>) => void;
+  onRemove: () => void;
+};
+
+/**
+ * The box around the writing in hand. It is the writing's own element, which is what makes it
+ * draggable under a finger: the page beneath it scrolls, and this does not.
+ */
+function Selection({ rect, onGrab, onCarry, onRelease, onDrop, onRemove }: SelectionProps) {
+  return (
+    <div
+      data-testid="text-selection"
+      className="absolute cursor-move"
+      style={{
+        left: atScale(rect.x),
+        top: atScale(rect.y),
+        width: atScale(rect.width),
+        height: atScale(rect.height),
+        // The box is the one thing on the page a finger drags rather than scrolls.
+        touchAction: "none",
+      }}
+      onPointerDown={onGrab}
+      onPointerMove={onCarry}
+      onPointerUp={onRelease}
+      onPointerCancel={onDrop}
+    >
+      {/* A line of type is thinner than a fingertip, so the box is taken hold of from beyond it. */}
+      <span className="absolute -inset-2" />
+      <span className="absolute inset-0 rounded-xs ring-2 ring-blue-500/60" />
+      <button
+        type="button"
+        data-testid="remove-text"
+        aria-label="Remove"
+        // Clear of the corner rather than over it: a line of type zoomed out is smaller than this
+        // button, and an X sitting on top of one would be all there was left to take hold of.
+        className="absolute bottom-full left-full grid size-6 place-items-center rounded-full bg-neutral-900 text-neutral-300 shadow-md ring-1 ring-white/20 touch-manipulation hover:bg-neutral-800 hover:text-white"
+        onPointerDown={event => event.stopPropagation()}
+        onClick={onRemove}
+      >
+        <svg viewBox="0 0 24 24" className="size-3.5 fill-none stroke-current stroke-[2.4] [stroke-linecap:round]" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+/** Far enough to have been carried somewhere rather than merely clicked, in page points. */
+const A_NUDGE = 2;
+
+export function PageView({ pdf, number, size, settled, pixelRatio, within, marks, tool, selected, onSelect, onCommand }: Props) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sharpRef = useRef<HTMLCanvasElement>(null);
@@ -224,14 +302,22 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
   const [sharp, setSharp] = useState<RenderedPart | null>(null);
   const [unpaintable, setUnpaintable] = useState(false);
   const [drawing, setDrawing] = useState<Drawing | null>(null);
+  const [carrying, setCarrying] = useState<Carrying | null>(null);
   const [hovered, setHovered] = useState<Box | undefined>(undefined);
-  const [writingAt, setWritingAt] = useState<Point | null>(null);
-  const [words, setWords] = useState("");
+  const [overWriting, setOverWriting] = useState(false);
+  const [draft, setDraft] = useState<Draft | null>(null);
   const nearby = useNearby(sheetRef, within, PAINT_WITHIN, KEEP_WITHIN);
   const density = paintDensity(settled, pixelRatio, size);
   const painted = nearby && !unpaintable;
   const part = useSharpPart(sheetRef, within, size, settled, painted && !wholePageIsSharp(settled, pixelRatio, size));
   const partDensity = part ? paintDensity(settled, pixelRatio, part) : 0;
+  /** Which writing the caret is open on, if any: a stable name, so typing is not a repaint. */
+  const editing = draft?.of ?? null;
+  const held = marks.writings.find(writing => writing.id === selected);
+  /** Where the box is drawn: under the finger while it is being carried, at its place otherwise. */
+  const boxAround = held && (carrying?.id === held.id ? { ...held, at: carrying.at } : held);
+
+  const boxOf = (writing: Writing): Rect => writingRect(writing, textWidth(writing.text, writing.size));
 
   useEffect(() => {
     // Letting go of the painted page is the point of the band: it is the larger of the two canvases.
@@ -285,10 +371,10 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
     paintPage(context, {
       image: rendered.image,
       pixelsPerPoint: rendered.pixelsPerPoint,
-      marks: withDraft(marks, drawing, number),
+      marks: asShown(marks, number, drawing, carrying, editing),
       hovered,
     });
-  }, [rendered, marks, drawing, hovered, number]);
+  }, [rendered, marks, drawing, carrying, editing, hovered, number]);
 
   useLayoutEffect(() => {
     const context = sharpRef.current?.getContext("2d");
@@ -297,34 +383,52 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
       image: sharp.image,
       pixelsPerPoint: sharp.pixelsPerPoint,
       at: sharp.at,
-      marks: withDraft(marks, drawing, number),
+      marks: asShown(marks, number, drawing, carrying, editing),
       hovered,
     });
-  }, [sharp, marks, drawing, hovered, number]);
+  }, [sharp, marks, drawing, carrying, editing, hovered, number]);
 
-  useEffect(() => setHovered(undefined), [tool]);
+  useEffect(() => {
+    setHovered(undefined);
+    setOverWriting(false);
+  }, [tool]);
 
-  const pointOf = (event: ReactPointerEvent<HTMLElement>): Point => {
-    const bounds = event.currentTarget.getBoundingClientRect();
+  /** Where a point on the screen falls on the page, in the page's own points. */
+  const pointOn = (bounds: DOMRect, event: { clientX: number; clientY: number }): Point => {
     // Taken from the page as it is drawn this moment, which a pinch may have moved since the paint.
     const drawnAt = bounds.width / size.width;
     return toPagePoint({ x: event.clientX - bounds.left, y: event.clientY - bounds.top }, drawnAt);
   };
 
-  const abandonWriting = (): void => {
-    setWritingAt(null);
-    setWords("");
-  };
+  const pointOf = (event: ReactPointerEvent<HTMLElement>): Point =>
+    pointOn(event.currentTarget.getBoundingClientRect(), event);
 
-  const finishWriting = (): void => {
-    if (writingAt && words.trim() !== "") {
-      onCommand({ kind: "write", writing: { page: number, at: writingAt, text: words, size: TEXT_SIZE } });
+  /** From a child of the sheet, which is not the sheet and so cannot be measured for it. */
+  const pointOnSheet = (event: ReactPointerEvent<HTMLElement>): Point =>
+    pointOn(sheetRef.current!.getBoundingClientRect(), event);
+
+  const finishDraft = (): void => {
+    if (!draft) return;
+    setDraft(null);
+    if (draft.of === null) {
+      if (draft.words.trim() !== "") {
+        onCommand({ kind: "write", writing: { id: newId(), page: number, at: draft.at, text: draft.words, size: TEXT_SIZE } });
+      }
+      return;
     }
-    abandonWriting();
+    const before = marks.writings.find(writing => writing.id === draft.of);
+    if (!before) return;
+    // Rubbed out to nothing but spaces, a writing has said what it wants: to not be there.
+    if (draft.words.trim() === "") {
+      onCommand({ kind: "erase", id: before.id });
+      onSelect(null);
+      return;
+    }
+    if (draft.words !== before.text) onCommand({ kind: "revise", writing: { ...before, text: draft.words } });
   };
 
   const startMark = (event: ReactPointerEvent<HTMLElement>): void => {
-    // Anything with a say of its own — the caret being typed into — answers for itself.
+    // Anything with a say of its own — the caret, the box round a writing — answers for itself.
     if (event.target !== event.currentTarget) return;
     if (drawing) {
       // A second finger is the start of a pinch, and a pinch leaves no ink behind.
@@ -339,11 +443,18 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
     }
     if (tool === "text") {
       event.preventDefault();
-      finishWriting();
-      setWritingAt(at);
+      finishDraft();
+      setDraft({ of: null, at, words: "" });
       return;
     }
-    const box = boxAt(rendered?.boxes ?? [], at, reachFor(event.pointerType));
+    const reach = reachFor(event.pointerType);
+    const writing = writingAt(marks.writings, boxOf, at, reach);
+    if (writing) {
+      onSelect(writing.id);
+      return;
+    }
+    onSelect(null);
+    const box = boxAt(rendered?.boxes ?? [], at, reach);
     if (box) onCommand({ kind: "toggle", box });
   };
 
@@ -355,7 +466,9 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
       return;
     }
     if (tool === null && event.pointerType === "mouse") {
-      setHovered(boxAt(rendered?.boxes ?? [], at, reachFor(event.pointerType)));
+      const reach = reachFor(event.pointerType);
+      setOverWriting(writingAt(marks.writings, boxOf, at, reach) !== undefined);
+      setHovered(boxAt(rendered?.boxes ?? [], at, reach));
     }
   };
 
@@ -370,17 +483,57 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
     if (drawing && event.pointerId === drawing.pointerId) setDrawing(null);
   };
 
+  const grabWriting = (event: ReactPointerEvent<HTMLElement>): void => {
+    if (carrying) {
+      // A second finger is the start of a pinch, and a pinch carries no writing with it.
+      if (event.pointerId !== carrying.pointerId) setCarrying(null);
+      return;
+    }
+    if (!held) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setCarrying({ pointerId: event.pointerId, id: held.id, grab: pointOnSheet(event), origin: held.at, at: held.at });
+  };
+
+  const carryWriting = (event: ReactPointerEvent<HTMLElement>): void => {
+    if (!carrying || event.pointerId !== carrying.pointerId) return;
+    const at = pointOnSheet(event);
+    setCarrying({
+      ...carrying,
+      at: { x: carrying.origin.x + at.x - carrying.grab.x, y: carrying.origin.y + at.y - carrying.grab.y },
+    });
+  };
+
+  /** Let go having gone somewhere, and it has been moved; let go where it began, and it was a click. */
+  const releaseWriting = (event: ReactPointerEvent<HTMLElement>): void => {
+    if (!carrying || event.pointerId !== carrying.pointerId) return;
+    setCarrying(null);
+    const writing = marks.writings.find(one => one.id === carrying.id);
+    if (!writing) return;
+    if (Math.hypot(carrying.at.x - carrying.origin.x, carrying.at.y - carrying.origin.y) > A_NUDGE) {
+      onCommand({ kind: "revise", writing: { ...writing, at: carrying.at } });
+      return;
+    }
+    setDraft({ of: writing.id, at: writing.at, words: writing.text });
+  };
+
+  const dropWriting = (event: ReactPointerEvent<HTMLElement>): void => {
+    if (carrying && event.pointerId === carrying.pointerId) setCarrying(null);
+  };
+
   return (
     <div
       ref={sheetRef}
       data-sheet={number}
-      className={`relative bg-white shadow-2xl ${cursorFor(tool, hovered !== undefined)}`}
+      className={`relative bg-white shadow-2xl ${cursorFor(tool, hovered !== undefined || overWriting)}`}
       style={{ width: atScale(size.width), height: atScale(size.height), touchAction: touchActionFor(tool) }}
       onPointerDown={startMark}
       onPointerMove={trackPointer}
       onPointerUp={finishStroke}
       onPointerCancel={dropStroke}
-      onPointerLeave={() => setHovered(undefined)}
+      onPointerLeave={() => {
+        setHovered(undefined);
+        setOverWriting(false);
+      }}
     >
       {painted && rendered && (
         // Sized by the painting it is holding, so a zoom stretches that one until the next lands.
@@ -414,15 +567,28 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
           This page could not be drawn.
         </p>
       )}
-      {writingAt && (
+      {boxAround && !draft && (
+        <Selection
+          rect={boxOf(boxAround)}
+          onGrab={grabWriting}
+          onCarry={carryWriting}
+          onRelease={releaseWriting}
+          onDrop={dropWriting}
+          onRemove={() => {
+            onCommand({ kind: "erase", id: boxAround.id });
+            onSelect(null);
+          }}
+        />
+      )}
+      {draft && (
         <WritingField
-          at={writingAt}
+          at={draft.at}
           settled={settled}
           size={TEXT_SIZE}
-          value={words}
-          onChange={setWords}
-          onCommit={finishWriting}
-          onCancel={abandonWriting}
+          value={draft.words}
+          onChange={words => setDraft(current => (current ? { ...current, words } : current))}
+          onCommit={finishDraft}
+          onCancel={() => setDraft(null)}
         />
       )}
     </div>

@@ -14,7 +14,7 @@ function asPageBox(rect: (typeof FLAT_BOXES)[number], field?: string): Box {
 test("writing lands where it was placed", async () => {
   const saved = await exportPdf(await buildPlainPdf(), {
     ...nothing,
-    writings: [{ page: 1, at: { x: 200, y: 492 }, text: "Paid in full", size: 14 }],
+    writings: [{ id: "one", page: 1, at: { x: 200, y: 492 }, text: "Paid in full", size: 14 }],
   });
   const written = (await readTextPlacements(saved)).find(item => item.text === "Paid in full");
   expect(written).toBeDefined();
@@ -69,7 +69,7 @@ for (const rotation of [0, 90, 180, 270]) {
     const at = { x: 120, y: 200 };
     const saved = await exportPdf(await buildRotatedPdf(rotation), {
       ...nothing,
-      writings: [{ page: 1, at, text: "Paid in full", size: 14 }],
+      writings: [{ id: "one", page: 1, at, text: "Paid in full", size: 14 }],
     });
     const written = (await readTextPlacements(saved)).find(item => item.text === "Paid in full");
     expect(written).toBeDefined();

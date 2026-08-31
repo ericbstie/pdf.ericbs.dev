@@ -2,11 +2,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PageView } from "./PageView";
 import { Toolbar, type Tool } from "./Toolbar";
 import { downloadFile } from "./download";
-import { type Command, type Point, marksFrom, marksOnPage, withoutLast } from "./edits";
+import { type Command, type Point, marksFrom, marksOnPage, newId, withoutLast } from "./edits";
 import { exportPdf } from "./export";
 import { watchZoomGestures } from "./gestures";
 import { type OpenPdf, type OpenProblem, openPdf } from "./pdf";
-import { forgetSession, keepEdits, keepFile, loadSession, newFileId } from "./session";
+import { forgetSession, keepEdits, keepFile, loadSession } from "./session";
 import { fitScale, widestPage } from "./viewport";
 import { SCALE, atScale, clampZoom, cornerFor, heldAt } from "./zoom";
 
@@ -94,6 +94,8 @@ export function Editor() {
   const [file, setFile] = useState<OpenFile | null>(null);
   const [commands, setCommands] = useState<Command[]>([]);
   const [tool, setTool] = useState<Tool>(null);
+  /** The writing in hand, by id, wherever in the document it sits. Only ever one at a time. */
+  const [selected, setSelected] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   /** The edits as they stood when they last went to disk as a PDF, so leaving knows what is at stake. */
@@ -114,7 +116,13 @@ export function Editor() {
   /** The size a page is laid out at with no zoom on it, which the window's width decides. */
   const fit = file ? fitScale(width, widestPage(file.pdf.sizes)) : 1;
   const marks = useMemo(() => marksFrom(commands), [commands]);
+  const record = (command: Command) => setCommands(previous => [...previous, command]);
   const undo = () => setCommands(withoutLast);
+  /** Picking up a tool puts down whatever was in hand: the tools answer for their own pages now. */
+  const pickTool = (wanted: Tool): void => {
+    setSelected(null);
+    setTool(wanted);
+  };
   const unsaved = commands.length > 0 && commands !== savedAt;
 
   /** Lays the pages out at the size the fingers are asking for, without waiting to be rendered. */
@@ -169,11 +177,12 @@ export function Editor() {
     if (!bytes) return setNotice("This file could not be read.");
     const opened = await openPdf(Uint8Array.from(bytes));
     if (!opened.ok) return setNotice(TROUBLE[opened.problem]);
-    const kept = { id: newFileId(), name: chosen.name, bytes };
+    const kept = { id: newId(), name: chosen.name, bytes };
     // Everything below runs without awaiting, so a restore cannot land between giving way and showing.
     restoreWanted.current = false;
     setNotice(null);
     setTool(null);
+    setSelected(null);
     resetZoom();
     setCommands([]);
     setSavedAt(null);
@@ -190,6 +199,7 @@ export function Editor() {
     setCommands([]);
     setSavedAt(null);
     setTool(null);
+    setSelected(null);
     resetZoom();
     setNotice(null);
     await forgetSession();
@@ -221,6 +231,11 @@ export function Editor() {
   useEffect(() => {
     if (file) void keepEdits(file.id, commands, commands === savedAt);
   }, [file, commands, savedAt]);
+
+  /** Undo can take away what is in hand, and nothing is held once it is no longer on a page. */
+  useEffect(() => {
+    if (selected && !marks.writings.some(writing => writing.id === selected)) setSelected(null);
+  }, [marks, selected]);
 
   /** The browser writes the wording; all a page may do is say that leaving would cost something. */
   useEffect(() => {
@@ -255,12 +270,22 @@ export function Editor() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement) return;
-      if (event.key === "Escape") setTool(null);
+      // Escape puts down what is in hand before it puts down the tool: one press, one undoing.
+      if (event.key === "Escape") {
+        if (selected) setSelected(null);
+        else setTool(null);
+      }
+      if ((event.key === "Delete" || event.key === "Backspace") && selected) {
+        // Backspace is the browser's way back a page, and nobody deleting a word means that.
+        event.preventDefault();
+        record({ kind: "erase", id: selected });
+        setSelected(null);
+      }
       if (event.key.toLowerCase() === "z" && (event.metaKey || event.ctrlKey)) undo();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [selected]);
 
   /** What the pages are painted for. The size they are laid out at is the property's to say. */
   const settled = fit * zoom;
@@ -322,7 +347,9 @@ export function Editor() {
               within={ref}
               marks={marksOnPage(marks, index + 1)}
               tool={tool}
-              onCommand={command => setCommands(previous => [...previous, command])}
+              selected={selected}
+              onSelect={setSelected}
+              onCommand={record}
             />
           ))}
         </div>
@@ -341,7 +368,7 @@ export function Editor() {
       {file && (
         <Toolbar
           tool={tool}
-          onTool={setTool}
+          onTool={pickTool}
           onOpen={() => picker.current?.click()}
           onClose={() => void closeFile()}
           onUndo={undo}

@@ -107,14 +107,18 @@ export function reachFor(pointerType: string): number {
   return pointerType === "mouse" ? REACH.cursor : REACH.finger;
 }
 
-export function boxAt(boxes: readonly Box[], point: Point, reach: number): Box | undefined {
-  return boxes.find(
-    ({ rect }) =>
-      point.x >= rect.x - reach &&
-      point.x <= rect.x + rect.width + reach &&
-      point.y >= rect.y - reach &&
-      point.y <= rect.y + rect.height + reach,
+/** Whether a point lands on a rectangle, allowing for however far off the pointer may be. */
+export function within(rect: Rect, point: Point, reach: number): boolean {
+  return (
+    point.x >= rect.x - reach &&
+    point.x <= rect.x + rect.width + reach &&
+    point.y >= rect.y - reach &&
+    point.y <= rect.y + rect.height + reach
   );
+}
+
+export function boxAt(boxes: readonly Box[], point: Point, reach: number): Box | undefined {
+  return boxes.find(({ rect }) => within(rect, point, reach));
 }
 
 export function overlaps(one: Rect, other: Rect): boolean {

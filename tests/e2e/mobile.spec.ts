@@ -93,6 +93,29 @@ test("the writing field is too big for the phone to zoom into, yet prints at pag
   expect(drawn.height).toBeLessThan(16);
 });
 
+test("a finger takes hold of a writing and carries it, rather than scrolling the page", async ({ page }) => {
+  await openPdf(page, await buildPlainPdf());
+  await page.locator('[data-tool="text"]').tap();
+  const at = await viewportPoint(page, { x: 210, y: 420 });
+  await page.touchscreen.tap(at.x, at.y);
+  await page.locator('[data-testid="text-input"]').waitFor();
+  await page.keyboard.type("Paid in full");
+  await page.keyboard.press("Enter");
+  await page.locator('[data-tool="text"]').tap();
+  await expect.poll(() => darkPixels(page, BLANK)).toBeGreaterThan(50);
+
+  await page.touchscreen.tap(at.x, at.y);
+  const box = page.locator('[data-testid="text-selection"]');
+  await box.waitFor();
+  const scrolled = await page.evaluate(() => document.querySelector(".overflow-auto")!.scrollTop);
+  const to = await viewportPoint(page, { x: 210, y: 480 });
+  await touchDrag(page, centerOf((await box.boundingBox())!), to);
+
+  await expect.poll(() => darkPixels(page, BLANK)).toBe(0);
+  await expect.poll(() => darkPixels(page, { x: 200, y: 460, width: 200, height: 40 })).toBeGreaterThan(50);
+  expect(await page.evaluate(() => document.querySelector(".overflow-auto")!.scrollTop)).toBe(scrolled);
+});
+
 test("the toolbar sits clear of the last page", async ({ page }) => {
   await openPdf(page, await buildPlainPdf());
   await page.mouse.wheel(0, 20_000);
