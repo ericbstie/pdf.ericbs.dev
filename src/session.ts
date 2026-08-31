@@ -39,17 +39,15 @@ function openDatabase(): Promise<IDBDatabase> {
 /**
  * Waits for the whole transaction rather than the requests inside it. A request can succeed and
  * the transaction still give up at commit — which is how a browser out of room answers a large
- * write — so this, not the request, is what says the writing landed. Nobody waits on this when
- * the work itself has already failed, hence the idle catch: an abort is then already reported.
+ * write — so this, not the request, is what says the writing landed. Asked for only once the
+ * requests have been answered, and awaited straight away, so an abort is nobody's to miss.
  */
 function committed(transaction: IDBTransaction): Promise<void> {
-  const done = new Promise<void>((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     transaction.oncomplete = () => resolve();
     transaction.onabort = () => reject(transaction.error ?? new Error("The write was given up on."));
     transaction.onerror = () => reject(transaction.error ?? new Error("The write was refused."));
   });
-  void done.catch(() => {});
-  return done;
 }
 
 /**
