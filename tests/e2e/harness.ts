@@ -29,7 +29,12 @@ export function centerOf(rect: Rect): Point {
 export async function viewportPoint(page: Page, pdfPoint: Point, pageNumber = 1): Promise<Point> {
   const box = await pageCanvas(page, pageNumber).boundingBox();
   if (!box) throw new Error(`page ${pageNumber} is not laid out`);
-  return pdfToViewport(box, pdfPoint);
+  const point = pdfToViewport(box, pdfPoint);
+  const window = page.viewportSize();
+  if (window && (point.x < 0 || point.y < 0 || point.x > window.width || point.y > window.height)) {
+    throw new Error(`(${pdfPoint.x}, ${pdfPoint.y}) is scrolled out of the window`);
+  }
+  return point;
 }
 
 /** Counts painted pixels inside a PDF-space rect, read straight off the rendered canvas. */

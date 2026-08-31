@@ -4,7 +4,7 @@ import { readCheckboxStates, readTextPlacements } from "../verify";
 import { centerOf, darkPixels, openPdf, savePdf, viewportPoint } from "./harness";
 
 const INK = { x: 200, y: 400, width: 200, height: 40 };
-const WRITING = { x: 200, y: 300 };
+const WRITING = { x: 200, y: 500 };
 const WORDS = "Paid in full";
 
 async function drawAcross(page: Page): Promise<void> {
@@ -21,6 +21,7 @@ async function write(page: Page): Promise<void> {
   await page.locator('[data-tool="text"]').click();
   const point = await viewportPoint(page, WRITING);
   await page.mouse.click(point.x, point.y);
+  await page.locator('[data-testid="text-input"]').waitFor();
   await page.keyboard.type(WORDS);
   await page.keyboard.press("Enter");
 }
