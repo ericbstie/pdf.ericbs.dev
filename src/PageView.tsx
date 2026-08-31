@@ -38,7 +38,16 @@ type Drawing = { pointerId: number; points: Point[] };
  * A writing being carried. `grab` is where the pointer came down and `origin` where the writing
  * was, so the two of them together say how far it has been taken from where it started.
  */
-type Carrying = { pointerId: number; id: string; grab: Point; origin: Point; at: Point };
+type Carrying = {
+  pointerId: number;
+  id: string;
+  /** Where the pointer came down, on the page and on the screen: the page says where the writing
+   * goes, the screen says whether the hand moved at all. */
+  grab: Point;
+  from: Point;
+  origin: Point;
+  at: Point;
+};
 
 /** A caret open on the page: on a writing already there, by its id, or on bare paper at a point. */
 type Draft = { of: string | null; at: Point; words: string };
@@ -291,8 +300,12 @@ function Selection({ rect, onGrab, onCarry, onRelease, onDrop, onRemove }: Selec
   );
 }
 
-/** Far enough to have been carried somewhere rather than merely clicked, in page points. */
-const A_NUDGE = 2;
+/**
+ * Far enough to have been carried somewhere rather than merely clicked, in screen pixels. The
+ * question is whether the hand moved, which the page's zoom has no say in: measured on the page, a
+ * threshold that is a deliberate drag zoomed in is less than a fingertip's own wobble zoomed out.
+ */
+const A_NUDGE = 4;
 
 export function PageView({ pdf, number, size, settled, pixelRatio, within, marks, tool, selected, onSelect, onCommand }: Props) {
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -430,6 +443,12 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
   const startMark = (event: ReactPointerEvent<HTMLElement>): void => {
     // Anything with a say of its own — the caret, the box round a writing — answers for itself.
     if (event.target !== event.currentTarget) return;
+    if (carrying) {
+      // A second finger is the start of a pinch, and a pinch carries no writing with it. It comes
+      // down on the page rather than on the box, which is why the box cannot be the one to notice.
+      if (event.pointerId !== carrying.pointerId) setCarrying(null);
+      return;
+    }
     if (drawing) {
       // A second finger is the start of a pinch, and a pinch leaves no ink behind.
       if (event.pointerId !== drawing.pointerId) setDrawing(null);
@@ -447,6 +466,10 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
       setDraft({ of: null, at, words: "" });
       return;
     }
+    // The caret is closed by this very click, and blur comes after the pointer: were it left to
+    // blur, what was typed would be recorded after the tick it preceded, and undo would take back
+    // the wrong one of the two.
+    finishDraft();
     const reach = reachFor(event.pointerType);
     const writing = writingAt(marks.writings, boxOf, at, reach);
     if (writing) {
@@ -491,15 +514,32 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
     }
     if (!held) return;
     event.currentTarget.setPointerCapture(event.pointerId);
-    setCarrying({ pointerId: event.pointerId, id: held.id, grab: pointOnSheet(event), origin: held.at, at: held.at });
+    setCarrying({
+      pointerId: event.pointerId,
+      id: held.id,
+      grab: pointOnSheet(event),
+      from: { x: event.clientX, y: event.clientY },
+      origin: held.at,
+      at: held.at,
+    });
   };
+
+  /**
+   * A writing goes no further than the page it belongs to. Past the edge the canvas clips it and
+   * the saved file places it off the sheet, so it would be gone from both while still holding a
+   * place in the undo — and held here rather than on release, so the box stops where it will land.
+   */
+  const ontoPage = (point: Point): Point => ({
+    x: Math.min(Math.max(point.x, 0), size.width),
+    y: Math.min(Math.max(point.y, 0), size.height),
+  });
 
   const carryWriting = (event: ReactPointerEvent<HTMLElement>): void => {
     if (!carrying || event.pointerId !== carrying.pointerId) return;
     const at = pointOnSheet(event);
     setCarrying({
       ...carrying,
-      at: { x: carrying.origin.x + at.x - carrying.grab.x, y: carrying.origin.y + at.y - carrying.grab.y },
+      at: ontoPage({ x: carrying.origin.x + at.x - carrying.grab.x, y: carrying.origin.y + at.y - carrying.grab.y }),
     });
   };
 
@@ -509,7 +549,7 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
     setCarrying(null);
     const writing = marks.writings.find(one => one.id === carrying.id);
     if (!writing) return;
-    if (Math.hypot(carrying.at.x - carrying.origin.x, carrying.at.y - carrying.origin.y) > A_NUDGE) {
+    if (Math.hypot(event.clientX - carrying.from.x, event.clientY - carrying.from.y) > A_NUDGE) {
       onCommand({ kind: "revise", writing: { ...writing, at: carrying.at } });
       return;
     }
