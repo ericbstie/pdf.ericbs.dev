@@ -1,12 +1,15 @@
 {
-  "name": "bun-react-template",
+  "name": "pdf.ericbs.dev",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "bun --hot src/index.ts",
     "start": "NODE_ENV=production bun src/index.ts",
-    "build": "bun run build.ts"
+    "build": "bun run build.ts",
+    "test": "bun test",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "bun-plugin-tailwind": "^0.1.2",
