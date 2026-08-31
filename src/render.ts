@@ -1,5 +1,6 @@
 import type { Box, Marks, Point, Stroke, Writing } from "./edits";
 import { checkPath, checkWidth, polylinePath } from "./paths";
+import { WRITING_FONT } from "./writing";
 
 const INK = "#0d0d0d";
 
@@ -17,7 +18,7 @@ function strokeInk(context: CanvasRenderingContext2D, stroke: Stroke): void {
 }
 
 function writeInk(context: CanvasRenderingContext2D, writing: Writing): void {
-  context.font = `${writing.size}px Helvetica, Arial, sans-serif`;
+  context.font = `${writing.size}px ${WRITING_FONT}`;
   context.textBaseline = "alphabetic";
   context.fillText(writing.text, writing.at.x, writing.at.y + writing.size * CAP_MIDDLE);
 }

@@ -1,4 +1,4 @@
-import type { Command } from "./edits";
+import { type Command, newId } from "./edits";
 
 /** The file an editing session started from. Its id ties the edits below to this exact opening. */
 export type KeptFile = { id: string; name: string; bytes: Uint8Array };
@@ -8,9 +8,13 @@ export type Session = { file: KeptFile; commands: Command[]; saved: boolean };
 
 type KeptEdits = { id: string; commands: Command[]; saved: boolean };
 
-/** Enough to tell one opening from the next. `randomUUID` is absent outside a secure context. */
-export function newFileId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+/** Edits kept before a writing carried an id: give each one, so it can be taken hold of again. */
+function named(commands: readonly Command[]): Command[] {
+  return commands.map(command =>
+    command.kind === "write" && !command.writing.id
+      ? { ...command, writing: { ...command.writing, id: newId() } }
+      : command,
+  );
 }
 
 const DATABASE = "pdf.ericbs.dev";
@@ -56,7 +60,7 @@ export async function loadSession(): Promise<Session | null> {
       const [file, edits] = await Promise.all(wanted);
       if (!file) return null;
       const mine = edits?.id === file.id ? edits : null;
-      return { file, commands: mine?.commands ?? [], saved: mine?.saved ?? false };
+      return { file, commands: named(mine?.commands ?? []), saved: mine?.saved ?? false };
     });
   } catch {
     return null;
