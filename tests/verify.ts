@@ -29,3 +29,25 @@ export async function readCheckboxStates(pdf: Uint8Array): Promise<Map<string, b
   const boxes = doc.getForm().getFields().filter(field => field instanceof PDFCheckBox);
   return new Map(boxes.map(box => [box.getName(), box.isChecked()]));
 }
+
+/** How many vector paths a page paints, split by how they are painted — enough to tell ink from a blob. */
+export type PaintCounts = { constructed: number; stroked: number; filled: number };
+
+/** pdf.js folds a path's paint operator into the arguments of the op that builds it. */
+function paintOperatorsOf(operators: { fnArray: number[]; argsArray: unknown[] }): number[] {
+  return operators.fnArray.flatMap((fn, index) =>
+    fn === pdfjs.OPS.constructPath ? [(operators.argsArray[index] as number[])[0]!] : [],
+  );
+}
+
+export async function countPaintOps(pdf: Uint8Array, pageNumber = 1): Promise<PaintCounts> {
+  const pages = await readPagesOf(pdf);
+  const painted = paintOperatorsOf(await pages[pageNumber - 1]!.getOperatorList());
+  const tally = (...ops: number[]) => painted.filter(op => ops.includes(op)).length;
+  const { stroke, closeStroke, fill, eoFill, fillStroke } = pdfjs.OPS;
+  return {
+    constructed: painted.length,
+    stroked: tally(stroke, closeStroke, fillStroke),
+    filled: tally(fill, eoFill, fillStroke),
+  };
+}
