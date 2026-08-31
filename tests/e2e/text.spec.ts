@@ -89,6 +89,40 @@ test("dragging a writing carries it, on the page and into the saved file", async
   expect(written!.x).toBeCloseTo(100, 0);
 });
 
+test("a writing is carried by the press that takes hold of it, in one motion", async ({ page }) => {
+  await openPdf(page, await buildPlainPdf());
+  await writeAt(page, "Paid in full");
+  await page.locator('[data-tool="text"]').click();
+  const from = await viewportPoint(page, AT);
+  const to = await viewportPoint(page, { x: 100, y: 360 });
+  // Nothing is in hand yet: press, drag and let go is how a mouse carries anything, and the press
+  // that finds the writing is the one that has to pick it up.
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(() => darkPixels(page, BLANK)).toBe(0);
+  await expect.poll(() => darkPixels(page, MOVED)).toBeGreaterThan(50);
+  const written = (await readTextPlacements(await savePdf(page))).find(item => item.text === "Paid in full");
+  expect(written!.x).toBeCloseTo(100, 0);
+});
+
+test("a writing carried in one motion is put back by a single undo", async ({ page }) => {
+  await openPdf(page, await buildPlainPdf());
+  await writeAt(page, "Paid in full");
+  await page.locator('[data-tool="text"]').click();
+  const from = await viewportPoint(page, AT);
+  const to = await viewportPoint(page, { x: 100, y: 360 });
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(() => darkPixels(page, MOVED)).toBeGreaterThan(50);
+  await page.locator('[data-action="undo"]').click();
+  await expect.poll(() => darkPixels(page, BLANK)).toBeGreaterThan(50);
+  await expect.poll(() => darkPixels(page, MOVED)).toBe(0);
+});
+
 test("clicking a writing that is already held opens it to be typed into", async ({ page }) => {
   await writeAndSelect(page, "Paid");
   const point = await viewportPoint(page, AT);

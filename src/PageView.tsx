@@ -47,6 +47,9 @@ type Carrying = {
   from: Point;
   origin: Point;
   at: Point;
+  /** Whether letting go without having moved opens the caret, which only a writing already in
+   * hand does: the press that picks one up for the first time is the press that selects it. */
+  opens: boolean;
 };
 
 /** A caret open on the page: on a writing already there, by its id, or on bare paper at a point. */
@@ -260,8 +263,15 @@ type SelectionProps = {
 /**
  * The box around the writing in hand. It is the writing's own element, which is what makes it
  * draggable under a finger: the page beneath it scrolls, and this does not.
+ *
+ * A pointer it has taken hold of is its own. The page below carries writings too, and would
+ * otherwise carry this one a second time and put it down twice, on one drag.
  */
 function Selection({ rect, onGrab, onCarry, onRelease, onDrop, onRemove }: SelectionProps) {
+  const alone = (answer: (event: ReactPointerEvent<HTMLElement>) => void) => (event: ReactPointerEvent<HTMLElement>) => {
+    event.stopPropagation();
+    answer(event);
+  };
   return (
     <div
       data-testid="text-selection"
@@ -274,10 +284,10 @@ function Selection({ rect, onGrab, onCarry, onRelease, onDrop, onRemove }: Selec
         // The box is the one thing on the page a finger drags rather than scrolls.
         touchAction: "none",
       }}
-      onPointerDown={onGrab}
-      onPointerMove={onCarry}
-      onPointerUp={onRelease}
-      onPointerCancel={onDrop}
+      onPointerDown={alone(onGrab)}
+      onPointerMove={alone(onCarry)}
+      onPointerUp={alone(onRelease)}
+      onPointerCancel={alone(onDrop)}
     >
       {/* A line of type is thinner than a fingertip, so the box is taken hold of from beyond it. */}
       <span className="absolute -inset-2" />
@@ -473,7 +483,10 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
     const reach = reachFor(event.pointerType);
     const writing = writingAt(marks.writings, boxOf, at, reach);
     if (writing) {
+      // Picked up by the press that finds it, rather than by a second one on the box it puts
+      // there: a hand that presses on a writing and moves is carrying it, and says so in one go.
       onSelect(writing.id);
+      pickUp(event, writing, selected === writing.id);
       return;
     }
     onSelect(null);
@@ -482,6 +495,10 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
   };
 
   const trackPointer = (event: ReactPointerEvent<HTMLElement>): void => {
+    if (carrying) {
+      carryWriting(event);
+      return;
+    }
     const at = pointOf(event);
     if (drawing) {
       if (event.pointerId !== drawing.pointerId) return;
@@ -496,6 +513,10 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
   };
 
   const finishStroke = (event: ReactPointerEvent<HTMLElement>): void => {
+    if (carrying) {
+      releaseWriting(event);
+      return;
+    }
     if (!drawing || event.pointerId !== drawing.pointerId) return;
     onCommand({ kind: "draw", stroke: { page: number, points: drawing.points, width: PEN_WIDTH } });
     setDrawing(null);
@@ -503,7 +524,22 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
 
   /** A gesture the browser takes over — a system swipe, a call arriving — leaves no ink behind. */
   const dropStroke = (event: ReactPointerEvent<HTMLElement>): void => {
+    dropWriting(event);
     if (drawing && event.pointerId === drawing.pointerId) setDrawing(null);
+  };
+
+  /** Takes hold of a writing under the pointer, and follows that pointer wherever it goes next. */
+  const pickUp = (event: ReactPointerEvent<HTMLElement>, writing: Writing, opens: boolean): void => {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setCarrying({
+      pointerId: event.pointerId,
+      id: writing.id,
+      grab: pointOnSheet(event),
+      from: { x: event.clientX, y: event.clientY },
+      origin: writing.at,
+      at: writing.at,
+      opens,
+    });
   };
 
   const grabWriting = (event: ReactPointerEvent<HTMLElement>): void => {
@@ -513,15 +549,7 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
       return;
     }
     if (!held) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setCarrying({
-      pointerId: event.pointerId,
-      id: held.id,
-      grab: pointOnSheet(event),
-      from: { x: event.clientX, y: event.clientY },
-      origin: held.at,
-      at: held.at,
-    });
+    pickUp(event, held, true);
   };
 
   /**
@@ -553,7 +581,7 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
       onCommand({ kind: "revise", writing: { ...writing, at: carrying.at } });
       return;
     }
-    setDraft({ of: writing.id, at: writing.at, words: writing.text });
+    if (carrying.opens) setDraft({ of: writing.id, at: writing.at, words: writing.text });
   };
 
   const dropWriting = (event: ReactPointerEvent<HTMLElement>): void => {
