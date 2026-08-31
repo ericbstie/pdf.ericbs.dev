@@ -5,10 +5,11 @@ import { downloadFile } from "./download";
 import { type Command, marksFrom, marksOnPage, withoutLast } from "./edits";
 import { exportPdf } from "./export";
 import { type OpenPdf, type OpenProblem, openPdf } from "./pdf";
+import { forgetSession, keepEdits, keepFile, loadSession, newFileId } from "./session";
 import { fitScale, widestPage } from "./viewport";
 
-/** `opening` counts openings rather than files: it is what tells one page 1 from the next one. */
-type OpenFile = { opening: number; name: string; bytes: Uint8Array; pdf: OpenPdf };
+/** The id is minted per opening, so it tells this file's pages from the last file's. */
+type OpenFile = { id: string; name: string; bytes: Uint8Array; pdf: OpenPdf };
 
 /** Past any form worth filling in by hand. Mostly it catches a stray drag of something enormous. */
 const MAX_FILE_BYTES = 100 * 1024 * 1024;
@@ -32,6 +33,18 @@ function useContainerWidth() {
     return () => observer.disconnect();
   }, []);
   return { ref, width };
+}
+
+/** Puts back what the last visit left, and lets go of a kept file that no longer opens. */
+async function reopenSession(): Promise<{ file: OpenFile; commands: Command[] } | null> {
+  const session = await loadSession();
+  if (!session) return null;
+  const opened = await openPdf(Uint8Array.from(session.file.bytes));
+  if (!opened.ok) {
+    await forgetSession();
+    return null;
+  }
+  return { file: { ...session.file, pdf: opened.pdf }, commands: session.commands };
 }
 
 /** Reading a chosen file can still fail: it may have been moved or unplugged since it was picked. */
@@ -78,11 +91,14 @@ export function Editor() {
   const [tool, setTool] = useState<Tool>(null);
   const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(true);
+  /** The edits as they stood when they last went to disk as a PDF, so leaving knows what is at stake. */
+  const [savedAt, setSavedAt] = useState<readonly Command[] | null>(null);
   const picker = useRef<HTMLInputElement>(null);
-  const openings = useRef(0);
   const { ref, width } = useContainerWidth();
   const marks = useMemo(() => marksFrom(commands), [commands]);
   const undo = () => setCommands(withoutLast);
+  const unsaved = commands.length > 0 && commands !== savedAt;
 
   const takeFile = async (chosen: File | undefined): Promise<void> => {
     if (!chosen) return;
@@ -91,20 +107,54 @@ export function Editor() {
     if (!bytes) return setNotice("This file could not be read.");
     const opened = await openPdf(Uint8Array.from(bytes));
     if (!opened.ok) return setNotice(TROUBLE[opened.problem]);
-    setNotice(null);
+    const kept = { id: newFileId(), name: chosen.name, bytes };
+    const survives = await keepFile(kept);
+    setNotice(survives ? null : "This browser will not keep a copy, so a reload would lose any edits.");
     setTool(null);
     setCommands([]);
-    setFile({ opening: (openings.current += 1), name: chosen.name, bytes, pdf: opened.pdf });
+    setFile({ ...kept, pdf: opened.pdf });
   };
 
   const save = async (): Promise<void> => {
     if (!file) return;
     try {
       downloadFile(await exportPdf(file.bytes, marks), file.name);
+      setSavedAt(commands);
     } catch {
       setNotice("This PDF could not be saved.");
     }
   };
+
+  useEffect(() => {
+    let live = true;
+    reopenSession().then(restored => {
+      if (!live) return;
+      if (restored) {
+        setFile(restored.file);
+        setCommands(restored.commands);
+      }
+      setRestoring(false);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (file) void keepEdits(file.id, commands);
+  }, [file, commands]);
+
+  /** The browser writes the wording; all a page may do is say that leaving would cost something. */
+  useEffect(() => {
+    if (!unsaved) return;
+    const confirmLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      // Safari asks for the deprecated spelling and ignores the other one.
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", confirmLeaving);
+    return () => window.removeEventListener("beforeunload", confirmLeaving);
+  }, [unsaved]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -150,9 +200,9 @@ export function Editor() {
         }}
       />
       {notice && <Notice text={notice} onDismiss={() => setNotice(null)} />}
-      {file && width > 0 ? (
-        // Keyed by opening, so a new file gets new pages rather than the last file's leftovers.
-        <div key={file.opening} className="flex flex-col items-center gap-6 pt-8 pb-28">
+      {file && width > 0 && (
+        // Keyed by the opening, so a new file gets new pages rather than the last file's leftovers.
+        <div key={file.id} className="flex flex-col items-center gap-6 pt-8 pb-28">
           {file.pdf.sizes.map((size, index) => (
             <PageView
               key={index}
@@ -168,7 +218,8 @@ export function Editor() {
             />
           ))}
         </div>
-      ) : (
+      )}
+      {!file && !restoring && (
         <label htmlFor={PICKER_ID} className="grid h-full cursor-pointer place-items-center">
           <span
             className={`grid size-48 place-items-center rounded-3xl border-2 border-dashed transition-colors ${
