@@ -35,6 +35,11 @@ export function marksFrom(commands: readonly Command[]): Marks {
   };
 }
 
+export function marksOnPage(marks: Marks, pageNumber: number): Marks {
+  const here = <Mark extends { page: number }>(items: readonly Mark[]) => items.filter(item => item.page === pageNumber);
+  return { strokes: here(marks.strokes), writings: here(marks.writings), ticks: here(marks.ticks) };
+}
+
 export function isTicked(marks: Marks, boxId: string): boolean {
   return marks.ticks.some(box => box.id === boxId);
 }

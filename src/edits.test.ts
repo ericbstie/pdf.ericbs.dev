@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type Box, type Command, isTicked, marksFrom, withoutLast } from "./edits";
+import { type Box, type Command, isTicked, marksFrom, marksOnPage, withoutLast } from "./edits";
 
 const box = (id: string): Box => ({ page: 1, id, rect: { x: 0, y: 0, width: 10, height: 10 } });
 const toggle = (id: string): Command => ({ kind: "toggle", box: box(id) });
@@ -30,4 +30,15 @@ describe("marksFrom", () => {
 test("withoutLast undoes the most recent command", () => {
   expect(marksFrom(withoutLast([draw, toggle("a")])).ticks).toEqual([]);
   expect(marksFrom(withoutLast([draw, toggle("a")])).strokes).toHaveLength(1);
+});
+
+test("marksOnPage keeps only what belongs to that page", () => {
+  const marks = marksFrom([
+    draw,
+    { kind: "draw", stroke: { page: 2, points: [{ x: 0, y: 0 }], width: 2 } },
+    toggle("a"),
+  ]);
+  expect(marksOnPage(marks, 2).strokes).toHaveLength(1);
+  expect(marksOnPage(marks, 2).ticks).toEqual([]);
+  expect(marksOnPage(marks, 1).ticks).toHaveLength(1);
 });
