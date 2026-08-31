@@ -62,6 +62,14 @@ export function PageView({ pdf, number, size, scale, pixelsPerPoint, marks, tool
     return toPagePoint({ x: event.clientX - bounds.left, y: event.clientY - bounds.top }, scale);
   };
 
+  const finishWriting = (): void => {
+    if (writingAt && words.trim() !== "") {
+      onCommand({ kind: "write", writing: { page: number, at: writingAt, text: words, size: TEXT_SIZE } });
+    }
+    setWritingAt(null);
+    setWords("");
+  };
+
   const startMark = (event: ReactPointerEvent<HTMLCanvasElement>): void => {
     const at = pointOf(event);
     if (tool === "draw") {
@@ -70,6 +78,8 @@ export function PageView({ pdf, number, size, scale, pixelsPerPoint, marks, tool
       return;
     }
     if (tool === "text") {
+      event.preventDefault();
+      finishWriting();
       setWritingAt(at);
       return;
     }
@@ -90,14 +100,6 @@ export function PageView({ pdf, number, size, scale, pixelsPerPoint, marks, tool
     if (!draft) return;
     onCommand({ kind: "draw", stroke: { page: number, points: draft, width: PEN_WIDTH } });
     setDraft(null);
-  };
-
-  const finishWriting = (): void => {
-    if (writingAt && words.trim() !== "") {
-      onCommand({ kind: "write", writing: { page: number, at: writingAt, text: words, size: TEXT_SIZE } });
-    }
-    setWritingAt(null);
-    setWords("");
   };
 
   return (
