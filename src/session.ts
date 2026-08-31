@@ -37,6 +37,22 @@ function openDatabase(): Promise<IDBDatabase> {
 }
 
 /**
+ * Waits for the whole transaction rather than the requests inside it. A request can succeed and
+ * the transaction still give up at commit — which is how a browser out of room answers a large
+ * write — so this, not the request, is what says the writing landed. Nobody waits on this when
+ * the work itself has already failed, hence the idle catch: an abort is then already reported.
+ */
+function committed(transaction: IDBTransaction): Promise<void> {
+  const done = new Promise<void>((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onabort = () => reject(transaction.error ?? new Error("The write was given up on."));
+    transaction.onerror = () => reject(transaction.error ?? new Error("The write was refused."));
+  });
+  void done.catch(() => {});
+  return done;
+}
+
+/**
  * Runs one transaction and hands the connection back. Every request has to be made before the
  * first await: a transaction closes itself as soon as the queue drains, and an await drains it.
  */
@@ -46,7 +62,10 @@ async function inStore<Result>(
 ): Promise<Result> {
   const database = await openDatabase();
   try {
-    return await work(database.transaction(STORE, mode).objectStore(STORE));
+    const transaction = database.transaction(STORE, mode);
+    const result = await work(transaction.objectStore(STORE));
+    await committed(transaction);
+    return result;
   } finally {
     database.close();
   }
