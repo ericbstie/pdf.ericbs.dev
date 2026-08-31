@@ -7,7 +7,8 @@ import { exportPdf } from "./export";
 import { type OpenPdf, type OpenProblem, openPdf } from "./pdf";
 import { fitScale, widestPage } from "./viewport";
 
-type OpenFile = { name: string; bytes: Uint8Array; pdf: OpenPdf };
+/** `opening` counts openings rather than files: it is what tells one page 1 from the next one. */
+type OpenFile = { opening: number; name: string; bytes: Uint8Array; pdf: OpenPdf };
 
 /** Well past any form worth filling in by hand, and short of what would sink the tab. */
 const MAX_FILE_BYTES = 100 * 1024 * 1024;
@@ -78,6 +79,7 @@ export function Editor() {
   const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const picker = useRef<HTMLInputElement>(null);
+  const openings = useRef(0);
   const { ref, width } = useContainerWidth();
   const marks = useMemo(() => marksFrom(commands), [commands]);
   const undo = () => setCommands(withoutLast);
@@ -92,7 +94,7 @@ export function Editor() {
     setNotice(null);
     setTool(null);
     setCommands([]);
-    setFile({ name: chosen.name, bytes, pdf: opened.pdf });
+    setFile({ opening: (openings.current += 1), name: chosen.name, bytes, pdf: opened.pdf });
   };
 
   const save = async (): Promise<void> => {
@@ -149,7 +151,8 @@ export function Editor() {
       />
       {notice && <Notice text={notice} onDismiss={() => setNotice(null)} />}
       {file && width > 0 ? (
-        <div className="flex flex-col items-center gap-6 pt-8 pb-28">
+        // Keyed by opening, so a new file gets new pages rather than the last file's leftovers.
+        <div key={file.opening} className="flex flex-col items-center gap-6 pt-8 pb-28">
           {file.pdf.sizes.map((size, index) => (
             <PageView
               key={index}

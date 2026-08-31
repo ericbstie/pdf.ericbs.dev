@@ -1,6 +1,6 @@
 import { type Page, expect, test } from "@playwright/test";
 import { FLAT_BOXES, FORM_BOXES, buildFlatCheckboxPdf, buildFormCheckboxPdf } from "../fixtures";
-import { readCheckboxStates, readTextPlacements } from "../verify";
+import { countPaintOps, readCheckboxStates, readTextPlacements } from "../verify";
 import { centerOf, darkPixels, openPdf, savePdf, viewportPoint } from "./harness";
 
 const INK = { x: 200, y: 400, width: 200, height: 40 };
@@ -67,4 +67,16 @@ test("saves a ticked form checkbox as a field value", async ({ page }) => {
   await openPdf(page, saved, "saved.pdf");
   expect(await darkPixels(page, FORM_BOXES[0]!)).toBeGreaterThan(unticked + 20);
   expect(await darkPixels(page, FORM_BOXES[1]!)).toBe(unticked);
+});
+
+test("a second save carries the later edits and keeps the earlier ones", async ({ page }) => {
+  await openPdf(page, await buildFlatCheckboxPdf());
+  await drawAcross(page);
+  const once = await savePdf(page);
+  expect((await readTextPlacements(once)).map(item => item.text)).not.toContain(WORDS);
+
+  await write(page);
+  const twice = await savePdf(page);
+  expect((await readTextPlacements(twice)).map(item => item.text)).toContain(WORDS);
+  expect((await countPaintOps(twice)).stroked).toBe((await countPaintOps(once)).stroked);
 });

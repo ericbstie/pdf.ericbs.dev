@@ -2,6 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!--
+      Files opened here are read in the browser and never sent anywhere, and this is what holds that
+      line: the page may fetch, load and run nothing but its own bundle, so script that somehow got
+      in would have nowhere to send a document. Inline styles are the one opening, needed to put a
+      caret on a page, and with images pinned to this origin CSS cannot smuggle anything out either.
+      It sits here rather than in a header so it travels with the app to whatever serves it. Two
+      things follow: frame-ancestors is ignored in a meta tag, so a proxy still owes us that one
+      (see the README), and in development Bun adds an inline bootstrap script that this refuses,
+      which neither the editor nor hot reload needs.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>pdf.ericbs.dev</title>
   </head>
