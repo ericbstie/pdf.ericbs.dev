@@ -3,6 +3,7 @@ import {
   type RefObject,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -74,6 +75,38 @@ type Held = {
   put: (by: Point) => Command;
   caret?: () => Draft;
 };
+
+/** The box a writing fills, in page points. */
+function boxOf(writing: Writing): Rect {
+  return writingRect(writing, textWidth(writing.text, writing.size));
+}
+
+function holdWriting(writing: Writing): Held {
+  return {
+    id: writing.id,
+    rect: boxOf(writing),
+    // Only the point the letters are drawn from has to land on the page: a long line of type may
+    // hang over the edge, as it does when it is first typed against it.
+    kept: { ...writing.at, width: 0, height: 0 },
+    put: by => ({ kind: "revise", writing: { ...writing, at: { x: writing.at.x + by.x, y: writing.at.y + by.y } } }),
+    caret: () => ({ of: writing.id, at: writing.at, words: writing.text }),
+  };
+}
+
+function holdStroke(stroke: Stroke): Held {
+  // The whole line stays on the paper: unlike a writing it has no one point it is drawn from,
+  // and a line half off the sheet is half gone.
+  const rect = strokeRect(stroke);
+  return { id: stroke.id, rect, kept: rect, put: by => ({ kind: "redraw", stroke: movedStroke(stroke, by) }) };
+}
+
+/** The mark of that name on this page, ready to be taken hold of, if it is on this page at all. */
+function markNamed(marks: Marks, id: string | null): Held | undefined {
+  const writing = marks.writings.find(one => one.id === id);
+  if (writing) return holdWriting(writing);
+  const stroke = marks.strokes.find(one => one.id === id);
+  return stroke ? holdStroke(stroke) : undefined;
+}
 
 type Props = {
   pdf: OpenPdf;
@@ -375,34 +408,9 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
   const partDensity = part ? paintDensity(settled, pixelRatio, part) : 0;
   /** Which writing the caret is open on, if any: a stable name, so typing is not a repaint. */
   const editing = draft?.of ?? null;
-  const boxOf = (writing: Writing): Rect => writingRect(writing, textWidth(writing.text, writing.size));
-
-  const holdWriting = (writing: Writing): Held => ({
-    id: writing.id,
-    rect: boxOf(writing),
-    // Only the point the letters are drawn from has to land on the page: a long line of type may
-    // hang over the edge, as it does when it is first typed against it.
-    kept: { ...writing.at, width: 0, height: 0 },
-    put: by => ({ kind: "revise", writing: { ...writing, at: { x: writing.at.x + by.x, y: writing.at.y + by.y } } }),
-    caret: () => ({ of: writing.id, at: writing.at, words: writing.text }),
-  });
-
-  const holdStroke = (stroke: Stroke): Held => {
-    // The whole line stays on the paper: unlike a writing it has no one point it is drawn from,
-    // and a line half off the sheet is half gone.
-    const rect = strokeRect(stroke);
-    return { id: stroke.id, rect, kept: rect, put: by => ({ kind: "redraw", stroke: movedStroke(stroke, by) }) };
-  };
-
-  /** The mark of that name on this page, ready to be taken hold of, if it is on this page at all. */
-  const markNamed = (id: string | null): Held | undefined => {
-    const writing = marks.writings.find(one => one.id === id);
-    if (writing) return holdWriting(writing);
-    const stroke = marks.strokes.find(one => one.id === id);
-    return stroke ? holdStroke(stroke) : undefined;
-  };
-
-  const held = markNamed(selected);
+  const held = markNamed(marks, selected);
+  /** The page as both canvases paint it, worked out once rather than once per canvas. */
+  const shown = useMemo(() => asShown(marks, number, drawing, carrying, editing), [marks, number, drawing, carrying, editing]);
 
   /** Where the box is drawn: under the finger while it is being carried, at its place otherwise. */
   const boxAround = (mark: Held): Rect => shifted(mark.rect, carrying?.id === mark.id ? carrying.by : NOWHERE);
@@ -459,10 +467,10 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
     paintPage(context, {
       image: rendered.image,
       pixelsPerPoint: rendered.pixelsPerPoint,
-      marks: asShown(marks, number, drawing, carrying, editing),
+      marks: shown,
       hovered,
     });
-  }, [rendered, marks, drawing, carrying, editing, hovered, number]);
+  }, [rendered, shown, hovered]);
 
   useLayoutEffect(() => {
     const context = sharpRef.current?.getContext("2d");
@@ -471,10 +479,10 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
       image: sharp.image,
       pixelsPerPoint: sharp.pixelsPerPoint,
       at: sharp.at,
-      marks: asShown(marks, number, drawing, carrying, editing),
+      marks: shown,
       hovered,
     });
-  }, [sharp, marks, drawing, carrying, editing, hovered, number]);
+  }, [sharp, shown, hovered]);
 
   /** The page's own words, laid over the painting of them so they can be selected and copied. */
   useEffect(() => {
@@ -649,7 +657,7 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
    * where the mark will land. */
   const carryMark = (event: ReactPointerEvent<HTMLElement>): void => {
     if (!carrying || event.pointerId !== carrying.pointerId) return;
-    const mark = markNamed(carrying.id);
+    const mark = markNamed(marks, carrying.id);
     if (!mark) return;
     const at = pointOnSheet(event);
     const by = { x: at.x - carrying.grab.x, y: at.y - carrying.grab.y };
@@ -660,7 +668,7 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
   const releaseMark = (event: ReactPointerEvent<HTMLElement>): void => {
     if (!carrying || event.pointerId !== carrying.pointerId) return;
     setCarrying(null);
-    const mark = markNamed(carrying.id);
+    const mark = markNamed(marks, carrying.id);
     if (!mark) return;
     if (Math.hypot(event.clientX - carrying.from.x, event.clientY - carrying.from.y) > A_NUDGE) {
       onCommand(mark.put(carrying.by));
