@@ -128,6 +128,13 @@ export function Editor() {
   /** The size a page is laid out at with no zoom on it, which the window's width decides. */
   const fit = file ? fitScale(width, widestPage(file.pdf.sizes)) : 1;
   const marks = useMemo(() => marksFrom(commands), [commands]);
+  // Sliced once per file per revision rather than once per page on every render: a page repaints
+  // its canvas whenever the marks object it was handed is a new one, and picking a tool or a mark
+  // is not a revision.
+  const pageMarks = useMemo(
+    () => file?.pdf.sizes.map((_, index) => marksOnPage(marks, index + 1)) ?? [],
+    [marks, file],
+  );
   const record = (command: Command) => setCommands(previous => [...previous, command]);
   const undo = () => setCommands(withoutLast);
   /** Picking up a tool puts down whatever was in hand: the tools answer for their own pages now. */
@@ -370,7 +377,7 @@ export function Editor() {
               settled={settled}
               pixelRatio={pixelRatio}
               within={ref}
-              marks={marksOnPage(marks, index + 1)}
+              marks={pageMarks[index]!}
               tool={tool}
               selected={selected}
               onSelect={setSelected}

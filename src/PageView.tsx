@@ -603,7 +603,13 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
     const at = pointOf(event);
     if (drawing) {
       if (event.pointerId !== drawing.pointerId) return;
-      setDrawing(current => (current ? { ...current, points: [...current.points, at] } : current));
+      // Pushed onto the same array rather than copied into a fresh one: a stroke of a few
+      // thousand points would otherwise be rebuilt whole for every point added to it.
+      setDrawing(current => {
+        if (!current) return current;
+        current.points.push(at);
+        return { pointerId: current.pointerId, points: current.points };
+      });
       return;
     }
     if (tool === null && event.pointerType === "mouse") {
