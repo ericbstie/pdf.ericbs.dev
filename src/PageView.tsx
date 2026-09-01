@@ -603,13 +603,12 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
     const at = pointOf(event);
     if (drawing) {
       if (event.pointerId !== drawing.pointerId) return;
-      // Pushed onto the same array rather than copied into a fresh one: a stroke of a few
-      // thousand points would otherwise be rebuilt whole for every point added to it.
-      setDrawing(current => {
-        if (!current) return current;
-        current.points.push(at);
-        return { pointerId: current.pointerId, points: current.points };
-      });
+      // Pushed onto the array the stroke is already keeping rather than copied into a fresh one:
+      // a stroke of a few thousand points would otherwise be rebuilt whole for every point added
+      // to it. Pushed here rather than inside the setter, which React may call more than once for
+      // the one change and would then hear the point twice.
+      drawing.points.push(at);
+      setDrawing({ pointerId: drawing.pointerId, points: drawing.points });
       return;
     }
     if (tool === null && event.pointerType === "mouse") {
@@ -626,7 +625,9 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
       return;
     }
     if (!drawing || event.pointerId !== drawing.pointerId) return;
-    onCommand({ kind: "draw", stroke: { id: newId(), page: number, points: drawing.points, width: PEN_WIDTH } });
+    // The points are copied as they are put down: the pen writes into the one array as it goes,
+    // and a move arriving after this would otherwise add a point to a stroke already recorded.
+    onCommand({ kind: "draw", stroke: { id: newId(), page: number, points: [...drawing.points], width: PEN_WIDTH } });
     setDrawing(null);
   };
 
