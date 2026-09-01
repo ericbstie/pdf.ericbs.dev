@@ -1,5 +1,5 @@
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
-import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist/types/src/display/api";
+import type { PDFDocumentProxy, PDFPageProxy, TextContent } from "pdfjs-dist/types/src/display/api";
 import * as workerHandler from "pdfjs-dist/legacy/build/pdf.worker.mjs";
 import { findCheckboxes, toBitmap, toPagePoints } from "./detect";
 import type { Box, Point, Rect } from "./edits";
@@ -37,6 +37,12 @@ export type RenderedPage = {
   boxes: Box[];
 };
 
+/**
+ * The words of a page as pdf.js hands them over, with the viewport that says where on the page
+ * each of them sits. Together they are everything a text layer is built from.
+ */
+export type PageText = { source: TextContent; viewport: PageViewport };
+
 /** One part of a page, painted on its own, and which page point its top-left corner is. */
 export type RenderedPart = {
   image: HTMLCanvasElement;
@@ -49,6 +55,8 @@ export type OpenPdf = {
   render(pageNumber: number, pixelsPerPoint: number): Promise<RenderedPage>;
   /** Zoomed in past what one canvas can hold, only the part on screen can be painted sharply. */
   renderPart(pageNumber: number, pixelsPerPoint: number, part: Rect): Promise<RenderedPart>;
+  /** The words on a page, for laying over the painting of it so they can be selected and copied. */
+  textOf(pageNumber: number): Promise<PageText>;
 };
 
 /** Why a file would not open, in terms the editor can put in front of the person who chose it. */
@@ -136,6 +144,8 @@ async function readerFor(doc: PDFDocumentProxy): Promise<OpenPdf> {
    * page is next painted, which also keeps a box's id the same from one painting to the next.
    */
   const found = new Map<number, Box[]>();
+  /** Kept for the same reason the boxes are: the words do not move, and parsing them again is work. */
+  const words = new Map<number, Promise<TextContent>>();
   return {
     sizes,
     async render(pageNumber, pixelsPerPoint) {
@@ -156,6 +166,20 @@ async function readerFor(doc: PDFDocumentProxy): Promise<OpenPdf> {
       });
       const size = { width: part.width * pixelsPerPoint, height: part.height * pixelsPerPoint };
       return { image: await paintToCanvas(page, viewport, size, false), pixelsPerPoint, at: { x: part.x, y: part.y } };
+    },
+    async textOf(pageNumber) {
+      const page = pages[pageNumber - 1]!;
+      let reading = words.get(pageNumber);
+      if (!reading) {
+        // A page that would not be read is asked again next time it comes round, rather than
+        // holding on to the refusal for as long as the file is open.
+        reading = page.getTextContent().catch(error => {
+          words.delete(pageNumber);
+          throw error;
+        });
+        words.set(pageNumber, reading);
+      }
+      return { source: await reading, viewport: page.getViewport({ scale: 1 }) };
     },
   };
 }

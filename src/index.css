@@ -18,3 +18,65 @@
     touch-action: pan-x pan-y;
   }
 }
+
+/*
+  The page's own words in transparent type, laid exactly over the painting of them: nothing of it
+  is seen, and what it is for is that a drag selects real text, that the selection copies, and
+  that the browser's own find has something to find.
+
+  pdf.js writes each word's place as a percentage of the page and its height into --font-height,
+  so the layer is measured in nothing but the size the pages are laid out at. That size is one
+  property, which a pinch already moves — so the words go with the page and are never rebuilt.
+*/
+.text-layer {
+  --total-scale-factor: var(--scale, 1);
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  text-align: initial;
+  line-height: 1;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  /* The bare paper between the words belongs to the page below, which has ticks to toggle on it. */
+  pointer-events: none;
+
+  :is(span, br) {
+    position: absolute;
+    white-space: pre;
+    color: transparent;
+    transform-origin: 0% 0%;
+  }
+
+  /*
+    The font is asked for at the size it prints at, and the browser refuses to draw below a size
+    of its own — so the layer asks for that size and shrinks what comes back, which is what
+    --min-font-size is: the letters keep their place at any zoom.
+  */
+  > :not(.markedContent),
+  .markedContent span:not(.markedContent) {
+    --font-height: 0;
+    --scale-x: 1;
+    --rotate: 0deg;
+    font-size: calc(var(--text-scale-factor) * var(--font-height));
+    transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+  }
+
+  .markedContent {
+    display: contents;
+  }
+
+  /* Selectable with nothing in hand only: with the pen out a drag draws, and a caret out writes. */
+  &[data-live="true"] :is(span, br) {
+    pointer-events: auto;
+    cursor: text;
+    user-select: text;
+  }
+
+  ::selection {
+    background: rgb(37 99 235 / 0.35);
+    color: transparent;
+  }
+}

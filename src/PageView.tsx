@@ -9,6 +9,7 @@ import {
 import { type Box, type Command, type Marks, type Point, type Rect, type Writing, newId } from "./edits";
 import type { OpenPdf, PageSize, RenderedPage, RenderedPart } from "./pdf";
 import { paintPage } from "./render";
+import { TEXT_LAYER, type TextPainting, paintText } from "./textlayer";
 import { keepEncodable } from "./text";
 import type { Tool } from "./Toolbar";
 import {
@@ -89,6 +90,17 @@ function asShown(marks: Marks, page: number, drawing: Drawing | null, carrying: 
       return [carrying && writing.id === carrying.id ? { ...writing, at: carrying.at } : writing];
     }),
   };
+}
+
+/**
+ * Whether the press landed on the page itself, rather than on something with a say of its own —
+ * the caret, the box round a writing. The transparent words laid over the page count as the page:
+ * a tick or a writing under them is still to be found, and it is only the bare gaps between the
+ * words that the page would have heard about anyway.
+ */
+function onPaper(event: ReactPointerEvent<HTMLElement>): boolean {
+  const target = event.target as HTMLElement;
+  return target === event.currentTarget || target.closest(`.${TEXT_LAYER}`) !== null;
 }
 
 function cursorFor(tool: Tool, overSomething: boolean): string {
@@ -321,6 +333,7 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
   const sheetRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sharpRef = useRef<HTMLCanvasElement>(null);
+  const textRef = useRef<HTMLDivElement>(null);
   const [rendered, setRendered] = useState<RenderedPage | null>(null);
   const [sharp, setSharp] = useState<RenderedPart | null>(null);
   const [unpaintable, setUnpaintable] = useState(false);
@@ -411,6 +424,26 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
     });
   }, [sharp, marks, drawing, carrying, editing, hovered, number]);
 
+  /** The page's own words, laid over the painting so they can be selected, copied and searched. */
+  useEffect(() => {
+    const container = textRef.current;
+    if (!container) return;
+    let live = true;
+    let painting: TextPainting | null = null;
+    pdf.textOf(number).then(
+      text => {
+        if (live) painting = paintText(container, text);
+      },
+      // A page whose words cannot be read is a page with nothing to select, and nothing more.
+      () => {},
+    );
+    return () => {
+      live = false;
+      painting?.cancel();
+      container.replaceChildren();
+    };
+  }, [pdf, number, nearby]);
+
   useEffect(() => {
     setHovered(undefined);
     setOverWriting(false);
@@ -452,7 +485,7 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
 
   const startMark = (event: ReactPointerEvent<HTMLElement>): void => {
     // Anything with a say of its own — the caret, the box round a writing — answers for itself.
-    if (event.target !== event.currentTarget) return;
+    if (!onPaper(event)) return;
     if (carrying) {
       // A second finger is the start of a pinch, and a pinch carries no writing with it. It comes
       // down on the page rather than on the box, which is why the box cannot be the one to notice.
@@ -485,13 +518,18 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
     if (writing) {
       // Picked up by the press that finds it, rather than by a second one on the box it puts
       // there: a hand that presses on a writing and moves is carrying it, and says so in one go.
+      // The drag carries the writing rather than sweeping a selection through the words under it.
+      event.preventDefault();
       onSelect(writing.id);
       pickUp(event, writing, selected === writing.id);
       return;
     }
     onSelect(null);
     const box = boxAt(rendered?.boxes ?? [], at, reach);
-    if (box) onCommand({ kind: "toggle", box });
+    if (box) {
+      event.preventDefault();
+      onCommand({ kind: "toggle", box });
+    }
   };
 
   const trackPointer = (event: ReactPointerEvent<HTMLElement>): void => {
@@ -629,6 +667,10 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
           }}
           className="pointer-events-none absolute"
         />
+      )}
+      {nearby && (
+        // Only with nothing in hand: with the pen out a drag draws, and with the caret out it writes.
+        <div ref={textRef} data-text={number} data-live={tool === null} className={TEXT_LAYER} />
       )}
       {nearby && unpaintable && (
         <p className="grid h-full place-items-center p-6 text-center text-sm text-neutral-500">
