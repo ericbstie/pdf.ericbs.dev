@@ -6,12 +6,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { type Box, type Command, type Marks, type Point, type Rect, type Writing, newId } from "./edits";
-import type { OpenPdf, PageSize, RenderedPage, RenderedPart } from "./pdf";
+import { type Box, type Command, type Marks, type Point, type Rect, type Writing, newId } from "../../lib/edits";
+import type { OpenPdf, PageSize, RenderedPage, RenderedPart } from "../../lib/pdf";
 import { paintPage } from "./render";
 import { TEXT_LAYER, type TextPainting, paintText } from "./textlayer";
-import { keepEncodable } from "./text";
-import type { Tool } from "./Toolbar";
+import { keepEncodable } from "../../lib/text";
+import type { Tool } from "../Toolbar/Toolbar";
 import {
   boxAt,
   paintDensity,
@@ -21,9 +21,9 @@ import {
   visiblePart,
   wholePageIsSharp,
   withBand,
-} from "./viewport";
+} from "../../lib/viewport";
 import { WRITING_FONT, textWidth, writingAt, writingRect } from "./writing";
-import { atScale } from "./zoom";
+import { atScale } from "../../lib/zoom";
 
 const PEN_WIDTH = 2;
 const TEXT_SIZE = 14;

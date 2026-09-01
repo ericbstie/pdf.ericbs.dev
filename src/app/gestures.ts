@@ -1,5 +1,5 @@
-import type { Point } from "./edits";
-import { midpointOf, spreadOf, wheelFactor } from "./zoom";
+import type { Point } from "../lib/edits";
+import { midpointOf, spreadOf, wheelFactor } from "../lib/zoom";
 
 /** What a gesture has to say: how much bigger, about which point, and when it is finished. */
 export type Zooming = {

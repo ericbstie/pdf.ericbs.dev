@@ -104,3 +104,21 @@ bun --hot ./index.ts
 ```
 
 For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+
+## Source layout
+
+`src/frontend.tsx` is the only file directly in `src/`. It holds the root
+component and mounts it; there is no separate `App.tsx`. Everything else lives in
+one of three folders:
+
+- `src/components/<Name>/` — one folder per component. It holds the component
+  itself, its test file, and any module used *only* by that component: helper
+  functions, or sub-components extracted for readability rather than reuse.
+- `src/lib/` — modules shared by two or more components.
+- `src/app/` — what belongs to the root component alone: the HTML shell it mounts
+  into, the global stylesheet, the server that serves it, ambient type
+  declarations, and its exclusive helpers.
+
+A module moves out of a component folder into `src/lib/` the moment a second
+component imports it, and moves back in if it ever has one caller again. Tests
+sit beside the code they cover, so a component's folder is the whole story.

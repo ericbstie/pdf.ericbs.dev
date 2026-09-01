@@ -7,7 +7,7 @@ const OUT = path.join(process.cwd(), "dist");
 
 /** Every HTML file under src is an entry point; Bun follows the scripts and styles from there. */
 function entrypoints(): string[] {
-  return [...new Bun.Glob("**.html").scanSync("src")].map(name => path.resolve("src", name));
+  return [...new Bun.Glob("**/*.html").scanSync("src")].map(name => path.resolve("src", name));
 }
 
 function readable(bytes: number): string {
