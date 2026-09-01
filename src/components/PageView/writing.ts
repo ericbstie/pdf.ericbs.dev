@@ -1,5 +1,5 @@
-import type { Point, Rect, Writing } from "./edits";
-import { within } from "./viewport";
+import type { Point, Rect, Writing } from "../../lib/edits";
+import { within } from "../../lib/viewport";
 
 /** The one font a writing is typed in, painted in and printed in, so all three agree on its width. */
 export const WRITING_FONT = "Helvetica, Arial, sans-serif";

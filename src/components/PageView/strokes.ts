@@ -1,4 +1,4 @@
-import type { Point, Rect, Stroke } from "./edits";
+import type { Point, Rect, Stroke } from "../../lib/edits";
 
 /** How far off the ink a press may land and still find the line, beyond the pointer's own reach. */
 const MARGIN = 3;

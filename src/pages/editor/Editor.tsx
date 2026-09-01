@@ -1,14 +1,20 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { PageView } from "./PageView";
-import { Toolbar, type Tool } from "./Toolbar";
+import { FilePicker } from "../../components/FilePicker/FilePicker";
+import { Notice } from "../../components/Notice/Notice";
+import { OpenPrompt } from "../../components/OpenPrompt/OpenPrompt";
+import { PageStack } from "../../components/PageStack/PageStack";
+import { Spinner } from "../../components/Spinner/Spinner";
+import type { Tool } from "../../components/Toolbar/Toolbar";
+import { Toolbar } from "../../components/Toolbar/Toolbar";
+import { useContainerWidth } from "../../hooks/useContainerWidth";
+import { type Command, type Point, marksFrom, newId, withoutLast } from "../../lib/edits";
+import { type OpenPdf, type OpenProblem, openPdf } from "../../lib/pdf";
+import { fitScale, widestPage } from "../../lib/viewport";
+import { SCALE, clampZoom, cornerFor, heldAt } from "../../lib/zoom";
 import { downloadFile } from "./download";
-import { type Command, type Point, marksFrom, marksOnPage, newId, withoutLast } from "./edits";
 import { exportPdf } from "./export";
 import { watchZoomGestures } from "./gestures";
-import { type OpenPdf, type OpenProblem, openPdf } from "./pdf";
 import { forgetSession, keepEdits, keepFile, loadSession } from "./session";
-import { fitScale, widestPage } from "./viewport";
-import { SCALE, atScale, clampZoom, cornerFor, heldAt } from "./zoom";
 
 /** The id is minted per opening, so it tells this file's pages from the last file's. */
 type OpenFile = { id: string; name: string; bytes: Uint8Array; pdf: OpenPdf };
@@ -18,27 +24,11 @@ const MAX_FILE_BYTES = 100 * 1024 * 1024;
 
 const PICKER_ID = "open-pdf";
 
-/** The space above the first page and between the pages, in page points, so it zooms with them. */
-const PAGE_GAP = atScale(16);
-
 const TROUBLE: Record<OpenProblem, string> = {
   encrypted: "This PDF is locked with a password, so it cannot be opened here.",
   "too-many-pages": "This PDF has more pages than the editor can open.",
   unreadable: "This file could not be read as a PDF.",
 };
-
-function useContainerWidth() {
-  const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(0);
-  useEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    const observer = new ResizeObserver(([entry]) => setWidth(entry!.contentRect.width));
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-  return { ref, width };
-}
 
 /** Puts back what the last visit left, and lets go of a kept file that no longer opens. */
 async function reopenSession(): Promise<{ file: OpenFile; commands: Command[]; saved: boolean } | null> {
@@ -61,47 +51,9 @@ async function readBytes(file: File): Promise<Uint8Array | null> {
   }
 }
 
-function OpenIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="size-16 fill-none stroke-current stroke-[1.2] [stroke-linecap:round] [stroke-linejoin:round]" aria-hidden="true">
-      <path d="M12 3v9m0 0l-3.5-3.5M12 12l3.5-3.5" />
-      <path d="M4 15v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3" />
-    </svg>
-  );
-}
-
-function Spinner() {
-  return (
-    <div role="status" aria-label="Loading PDF" className="fixed inset-0 z-20 grid place-items-center bg-neutral-900/60">
-      <svg viewBox="0 0 24 24" className="size-16 animate-spin fill-none stroke-current stroke-[1.2]" aria-hidden="true">
-        <circle cx="12" cy="12" r="9" className="opacity-25" />
-        <path d="M21 12a9 9 0 0 0-9-9" strokeWidth="2" strokeLinecap="round" />
-      </svg>
-    </div>
-  );
-}
-
-function Notice({ text, onDismiss }: { text: string; onDismiss: () => void }) {
-  return (
-    <div role="alert" data-testid="notice" className="fixed inset-x-0 top-0 z-10 grid justify-items-center p-3">
-      <p className="flex max-w-md items-center gap-3 rounded-xl bg-neutral-900/95 px-4 py-3 text-sm shadow-xl ring-1 ring-white/10">
-        <span>{text}</span>
-        <button
-          type="button"
-          aria-label="Dismiss"
-          onClick={onDismiss}
-          className="grid size-8 shrink-0 place-items-center rounded-full text-neutral-400 touch-manipulation hover:bg-white/10 hover:text-white"
-        >
-          <svg viewBox="0 0 24 24" className="size-4 fill-none stroke-current stroke-[1.8] [stroke-linecap:round]" aria-hidden="true">
-            <path d="M6 6l12 12M18 6L6 18" />
-          </svg>
-        </button>
-      </p>
-    </div>
-  );
-}
-
-export function Editor() {
+/** The whole editor: one PDF open at a time, the marks made on it, and what is in hand. */
+export
+function Editor() {
   const [file, setFile] = useState<OpenFile | null>(null);
   const [commands, setCommands] = useState<Command[]>([]);
   const [tool, setTool] = useState<Tool>(null);
@@ -128,13 +80,6 @@ export function Editor() {
   /** The size a page is laid out at with no zoom on it, which the window's width decides. */
   const fit = file ? fitScale(width, widestPage(file.pdf.sizes)) : 1;
   const marks = useMemo(() => marksFrom(commands), [commands]);
-  // Sliced once per file per revision rather than once per page on every render: a page repaints
-  // its canvas whenever the marks object it was handed is a new one, and picking a tool or a mark
-  // is not a revision.
-  const pageMarks = useMemo(
-    () => file?.pdf.sizes.map((_, index) => marksOnPage(marks, index + 1)) ?? [],
-    [marks, file],
-  );
   const record = (command: Command) => setCommands(previous => [...previous, command]);
   const undo = () => setCommands(withoutLast);
   /** Picking up a tool puts down whatever was in hand: the tools answer for their own pages now. */
@@ -339,64 +284,26 @@ export function Editor() {
         void takeFile(event.dataTransfer.files[0]);
       }}
     >
-      <input
-        ref={picker}
-        id={PICKER_ID}
-        type="file"
-        accept="application/pdf,.pdf"
-        aria-label="Open a PDF"
-        className="sr-only"
-        onChange={event => {
-          const chosen = event.target.files?.[0];
-          event.target.value = "";
-          void takeFile(chosen);
-        }}
-      />
+      <FilePicker id={PICKER_ID} ref={picker} onPick={chosen => void takeFile(chosen)} />
       {notice && <Notice text={notice} onDismiss={() => setNotice(null)} />}
       {loading && <Spinner />}
       {file && width > 0 && (
         // Keyed by the opening, so a new file gets new pages rather than the last file's leftovers.
-        // Exactly as wide as the widest page, so its corner is the pages' own corner wherever the
-        // browser puts it, and the space around them grows with them: zoomed in, everything above a
-        // page moves in step with the page itself. The room at the bottom is for the toolbar, which
-        // keeps its size on the screen whatever the pages are doing.
-        <div
+        <PageStack
           key={file.id}
           ref={pages}
-          className="mx-auto flex w-max flex-col items-center pb-28"
-          // The scroll is put where a gesture says; the browser keeping its own place as the pages
-          // grow would be a second hand on it, pulling the other way.
-          style={{ gap: PAGE_GAP, paddingTop: PAGE_GAP, overflowAnchor: "none" }}
-        >
-          {file.pdf.sizes.map((size, index) => (
-            <PageView
-              key={index}
-              pdf={file.pdf}
-              number={index + 1}
-              size={size}
-              settled={settled}
-              pixelRatio={pixelRatio}
-              within={ref}
-              marks={pageMarks[index]!}
-              tool={tool}
-              selected={selected}
-              onSelect={setSelected}
-              onCommand={record}
-            />
-          ))}
-        </div>
+          pdf={file.pdf}
+          settled={settled}
+          pixelRatio={pixelRatio}
+          within={ref}
+          marks={marks}
+          tool={tool}
+          selected={selected}
+          onSelect={setSelected}
+          onCommand={record}
+        />
       )}
-      {!file && (
-        <label htmlFor={PICKER_ID} className="grid h-full cursor-pointer place-items-center">
-          <span
-            className={`grid size-48 place-items-center rounded-3xl border-2 border-dashed transition-colors ${
-              dragging ? "border-neutral-200 text-neutral-100" : "border-neutral-600 text-neutral-500 hover:border-neutral-400 hover:text-neutral-300"
-            }`}
-          >
-            <OpenIcon />
-          </span>
-        </label>
-      )}
+      {!file && <OpenPrompt pickerId={PICKER_ID} dragging={dragging} />}
       {file && (
         <Toolbar
           tool={tool}

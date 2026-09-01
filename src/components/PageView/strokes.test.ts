@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Stroke } from "./edits";
+import type { Stroke } from "../../lib/edits";
 import { fromStroke, movedStroke, strokeAt, strokeRect } from "./strokes";
 
 const line = (id: string, points: { x: number; y: number }[], width = 2): Stroke => ({ id, page: 1, points, width });

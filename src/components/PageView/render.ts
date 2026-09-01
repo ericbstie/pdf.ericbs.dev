@@ -1,5 +1,5 @@
-import type { Box, Marks, Point, Stroke, Writing } from "./edits";
-import { checkPath, checkWidth } from "./paths";
+import type { Box, Marks, Point, Stroke, Writing } from "../../lib/edits";
+import { checkPath, checkWidth } from "../../lib/paths";
 import { WRITING_FONT } from "./writing";
 
 const INK = "#0d0d0d";

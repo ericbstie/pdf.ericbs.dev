@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { FLAT_BOXES, FORM_BOXES, PAGE_SIZE, buildFlatCheckboxPdf, buildFormCheckboxPdf, buildPlainPdf, buildRotatedPdf } from "../tests/fixtures";
-import { countPaintOps, readCheckboxStates, readPathCorners, readTextPlacements, toViewPoint } from "../tests/verify";
-import type { Box, Marks } from "./edits";
+import { FLAT_BOXES, FORM_BOXES, PAGE_SIZE, buildFlatCheckboxPdf, buildFormCheckboxPdf, buildPlainPdf, buildRotatedPdf } from "../../../tests/fixtures";
+import { countPaintOps, readCheckboxStates, readPathCorners, readTextPlacements, toViewPoint } from "../../../tests/verify";
+import type { Box, Marks } from "../../lib/edits";
 import { exportPdf } from "./export";
 
 const nothing: Marks = { strokes: [], writings: [], ticks: [], unticks: [] };

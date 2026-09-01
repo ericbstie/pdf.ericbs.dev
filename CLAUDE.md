@@ -104,3 +104,25 @@ bun --hot ./index.ts
 ```
 
 For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+
+## Source layout
+
+`src/` holds only what belongs to the app as a whole: `frontend.tsx`, which mounts
+the page the URL asks for and does nothing else; `index.html`, the shell it mounts
+into; `index.css`, the global stylesheet; `server.ts`, which serves them; and
+`modules.d.ts` for ambient declarations. Everything else is under one of four
+folders:
+
+- `src/pages/<name>/` — one folder per page. It holds the page component, its
+  tests, and every non-component module only that page uses.
+- `src/components/<Name>/` — every component that is not a page, one folder each,
+  holding the component, its tests, and any module only that component uses. A
+  sub-component extracted purely so a page reads in one pass lives here too, on
+  the same terms as one meant for reuse.
+- `src/hooks/` — React hooks, one file per hook, named for the hook it exports.
+- `src/lib/` — plain modules shared across pages or components.
+
+A module moves out of a page or component folder into `src/lib/` — or `src/hooks/`,
+if it is a hook — the moment a second one imports it, and moves back in if it ever
+has one caller again. Tests sit beside the code they cover, so a folder is the
+whole story.

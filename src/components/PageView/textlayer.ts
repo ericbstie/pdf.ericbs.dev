@@ -1,6 +1,6 @@
 import { TextLayer } from "pdfjs-dist/legacy/build/pdf.mjs";
-import type { PageText } from "./pdf";
-import { atScale } from "./zoom";
+import type { PageText } from "../../lib/pdf";
+import { atScale } from "../../lib/zoom";
 
 /** The class the stylesheet dresses the layer in, and which the tests find it by. */
 export const TEXT_LAYER = "text-layer";

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Writing } from "./edits";
+import type { Writing } from "../../lib/edits";
 import { writingAt, writingRect } from "./writing";
 
 const writing = (id: string, at: { x: number; y: number }, text = "Paid in full"): Writing => ({

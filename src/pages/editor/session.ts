@@ -1,4 +1,4 @@
-import { type Command, newId } from "./edits";
+import { type Command, newId } from "../../lib/edits";
 
 /** The file an editing session started from. Its id ties the edits below to this exact opening. */
 export type KeptFile = { id: string; name: string; bytes: Uint8Array };
