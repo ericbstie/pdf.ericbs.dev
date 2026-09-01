@@ -37,7 +37,10 @@
   inset: 0;
   overflow: clip;
   text-align: initial;
+  /* Every word is placed by pdf.js measuring the type itself, so nothing above may space it out. */
   line-height: 1;
+  letter-spacing: normal;
+  word-spacing: normal;
   forced-color-adjust: none;
   /* A phone inflates the type in anything it takes for a column of prose, and would move it off
      the letters underneath. The size is measured from the page, and nothing else may touch it. */
@@ -70,6 +73,23 @@
 
   .markedContent {
     display: contents;
+  }
+
+  /*
+    A page that arrives turned has its words placed the right way up all the same, and is turned
+    here instead — about the corner the layer is laid out from, then brought back over the sheet.
+    pdf.js writes the angle onto the container as it builds it.
+  */
+  &[data-main-rotation="90"] {
+    transform: rotate(90deg) translateY(-100%);
+  }
+
+  &[data-main-rotation="180"] {
+    transform: rotate(180deg) translate(-100%, -100%);
+  }
+
+  &[data-main-rotation="270"] {
+    transform: rotate(270deg) translateX(-100%);
   }
 
   /* Selectable with nothing in hand only: with the pen out a drag draws, and a caret out writes. */

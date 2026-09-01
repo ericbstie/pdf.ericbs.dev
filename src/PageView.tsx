@@ -424,7 +424,7 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
     });
   }, [sharp, marks, drawing, carrying, editing, hovered, number]);
 
-  /** The page's own words, laid over the painting so they can be selected, copied and searched. */
+  /** The page's own words, laid over the painting of them so they can be selected and copied. */
   useEffect(() => {
     const container = textRef.current;
     if (!container) return;
@@ -442,7 +442,7 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
       painting?.cancel();
       container.replaceChildren();
     };
-  }, [pdf, number, nearby]);
+  }, [pdf, number, painted]);
 
   useEffect(() => {
     setHovered(undefined);
@@ -668,7 +668,7 @@ export function PageView({ pdf, number, size, settled, pixelRatio, within, marks
           className="pointer-events-none absolute"
         />
       )}
-      {nearby && (
+      {painted && (
         // Only with nothing in hand: with the pen out a drag draws, and with the caret out it writes.
         <div ref={textRef} data-text={number} data-live={tool === null} className={TEXT_LAYER} />
       )}

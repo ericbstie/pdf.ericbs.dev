@@ -40,8 +40,13 @@ export type RenderedPage = {
 /**
  * The words of a page as pdf.js hands them over, with the viewport that says where on the page
  * each of them sits. Together they are everything a text layer is built from.
+ *
+ * A page that arrives turned is placed upright all the same: every word is put down in the page's
+ * own unturned space, and the turn is made afterwards, on the layer as a whole. `upright` is that
+ * space — the sheet's own size for a page the right way up, and its two sides swapped for one
+ * lying on its side.
  */
-export type PageText = { source: TextContent; viewport: PageViewport };
+export type PageText = { source: TextContent; viewport: PageViewport; upright: PageSize };
 
 /** One part of a page, painted on its own, and which page point its top-left corner is. */
 export type RenderedPart = {
@@ -179,7 +184,12 @@ async function readerFor(doc: PDFDocumentProxy): Promise<OpenPdf> {
         });
         words.set(pageNumber, reading);
       }
-      return { source: await reading, viewport: page.getViewport({ scale: 1 }) };
+      const upright = page.getViewport({ scale: 1, rotation: 0 });
+      return {
+        source: await reading,
+        viewport: page.getViewport({ scale: 1 }),
+        upright: { width: upright.width, height: upright.height },
+      };
     },
   };
 }

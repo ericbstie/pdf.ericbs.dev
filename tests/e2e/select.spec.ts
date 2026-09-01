@@ -1,5 +1,5 @@
 import { type Locator, type Page, expect, test } from "@playwright/test";
-import { buildPlainPdf } from "../fixtures";
+import { buildPlainPdf, buildRotatedPdf } from "../fixtures";
 import { openPdf, pageCanvas, viewportPoint, wheelZoom, widthOnScreen } from "./harness";
 
 /** The words the plain fixture is printed with, as a line of the page's own text. */
@@ -78,3 +78,39 @@ test("a writing over the printed words is taken hold of rather than selected", a
   await expect(page.locator('[data-testid="text-selection"]')).toBeVisible();
   expect(await selectedText(page)).toBe("");
 });
+
+/**
+ * How much of the painted page is ink, in the patch of screen the transparent words claim. The
+ * words are only any use where the letters are: this asks whether the two are in the same place.
+ */
+async function inkUnder(page: Page, rect: { x: number; y: number; width: number; height: number }): Promise<number> {
+  return pageCanvas(page).evaluate((element, box) => {
+    const canvas = element as HTMLCanvasElement;
+    const sheet = canvas.getBoundingClientRect();
+    const perPixel = canvas.width / sheet.width;
+    const region = {
+      x: Math.round((box.x - sheet.left) * perPixel),
+      y: Math.round((box.y - sheet.top) * perPixel),
+      width: Math.max(1, Math.round(box.width * perPixel)),
+      height: Math.max(1, Math.round(box.height * perPixel)),
+    };
+    const { data } = canvas.getContext("2d")!.getImageData(region.x, region.y, region.width, region.height);
+    let dark = 0;
+    for (let index = 0; index < data.length; index += 4) {
+      if (0.299 * data[index]! + 0.587 * data[index + 1]! + 0.114 * data[index + 2]! < 128) dark += 1;
+    }
+    return dark;
+  }, rect);
+}
+
+for (const turn of [0, 90, 180, 270]) {
+  test(`the words lie on the letters of a page turned ${turn} degrees`, async ({ page }) => {
+    await openPdf(page, await buildRotatedPdf(turn));
+    await expect(words(page)).toHaveText(LINE);
+    const box = (await words(page).boundingBox())!;
+    const sheet = (await pageCanvas(page).boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(sheet.x - 1);
+    expect(box.y).toBeGreaterThanOrEqual(sheet.y - 1);
+    expect(await inkUnder(page, box)).toBeGreaterThan(50);
+  });
+}
