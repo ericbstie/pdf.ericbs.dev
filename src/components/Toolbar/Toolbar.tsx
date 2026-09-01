@@ -14,6 +14,14 @@ function OpenIcon() {
   );
 }
 
+function CursorIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className={ICON} aria-hidden="true">
+      <path d="M6 3l12 8.5-5.2 1.1L15 19l-2.4 1-2.2-6.3L6 17z" />
+    </svg>
+  );
+}
+
 function PenIcon() {
   return (
     <svg viewBox="0 0 24 24" className={ICON} aria-hidden="true">
@@ -74,9 +82,16 @@ export function Toolbar({ tool, onTool, onOpen, onClose, onUndo, canUndo, onSave
       className="fixed bottom-0 left-1/2 z-20 -translate-x-1/2"
       style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}
     >
-      <div className="flex gap-1 rounded-full bg-neutral-900/90 p-1.5 shadow-xl ring-1 ring-white/10 backdrop-blur">
-        <button type="button" data-action="open" aria-label="Open another PDF" className={BUTTON} onClick={onOpen}>
-          <OpenIcon />
+      <div className="flex items-center gap-1 rounded-full bg-neutral-900/90 p-1.5 shadow-xl ring-1 ring-white/10 backdrop-blur">
+        <button
+          type="button"
+          data-tool="none"
+          aria-label="Select"
+          aria-pressed={tool === null}
+          className={BUTTON}
+          onClick={() => onTool(null)}
+        >
+          <CursorIcon />
         </button>
         <button type="button" data-tool="draw" aria-label="Draw" aria-pressed={tool === "draw"} className={BUTTON} onClick={pick("draw")}>
           <PenIcon />
@@ -86,6 +101,10 @@ export function Toolbar({ tool, onTool, onOpen, onClose, onUndo, canUndo, onSave
         </button>
         <button type="button" data-action="undo" aria-label="Undo" disabled={!canUndo} className={BUTTON} onClick={onUndo}>
           <UndoIcon />
+        </button>
+        <div className="mx-1 h-6 w-px bg-white/10" aria-hidden="true" />
+        <button type="button" data-action="open" aria-label="Open another PDF" className={BUTTON} onClick={onOpen}>
+          <OpenIcon />
         </button>
         <button type="button" data-action="save" aria-label="Download" className={BUTTON} onClick={onSave}>
           <DownloadIcon />
