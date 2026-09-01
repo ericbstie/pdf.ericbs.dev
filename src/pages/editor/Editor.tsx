@@ -1,20 +1,20 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { FilePicker } from "../../components/FilePicker/FilePicker";
+import { Notice } from "../../components/Notice/Notice";
+import { OpenPrompt } from "../../components/OpenPrompt/OpenPrompt";
+import { PageStack } from "../../components/PageStack/PageStack";
+import { Spinner } from "../../components/Spinner/Spinner";
 import type { Tool } from "../../components/Toolbar/Toolbar";
 import { Toolbar } from "../../components/Toolbar/Toolbar";
+import { useContainerWidth } from "../../hooks/useContainerWidth";
 import { type Command, type Point, marksFrom, newId, withoutLast } from "../../lib/edits";
 import { type OpenPdf, type OpenProblem, openPdf } from "../../lib/pdf";
 import { fitScale, widestPage } from "../../lib/viewport";
 import { SCALE, clampZoom, cornerFor, heldAt } from "../../lib/zoom";
-import { FilePicker } from "./_components/FilePicker";
-import { Notice } from "./_components/Notice";
-import { OpenPrompt } from "./_components/OpenPrompt";
-import { PageStack } from "./_components/PageStack";
-import { Spinner } from "./_components/Spinner";
 import { downloadFile } from "./download";
 import { exportPdf } from "./export";
 import { watchZoomGestures } from "./gestures";
 import { forgetSession, keepEdits, keepFile, loadSession } from "./session";
-import { useContainerWidth } from "./useContainerWidth";
 
 /** The id is minted per opening, so it tells this file's pages from the last file's. */
 type OpenFile = { id: string; name: string; bytes: Uint8Array; pdf: OpenPdf };

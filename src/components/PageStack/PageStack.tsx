@@ -1,9 +1,9 @@
 import type { RefObject } from "react";
-import { PageView } from "../../../components/PageView/PageView";
-import type { Tool } from "../../../components/Toolbar/Toolbar";
-import { type Command, type Marks, marksOnPage } from "../../../lib/edits";
-import type { OpenPdf } from "../../../lib/pdf";
-import { atScale } from "../../../lib/zoom";
+import { type Command, type Marks, marksOnPage } from "../../lib/edits";
+import type { OpenPdf } from "../../lib/pdf";
+import { atScale } from "../../lib/zoom";
+import { PageView } from "../PageView/PageView";
+import type { Tool } from "../Toolbar/Toolbar";
 
 /** The space above the first page and between the pages, in page points, so it zooms with them. */
 const PAGE_GAP = atScale(16);
