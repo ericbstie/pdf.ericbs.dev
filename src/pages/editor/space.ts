@@ -1,4 +1,4 @@
-import type { Point } from "../lib/edits";
+import type { Point } from "../../lib/edits";
 
 /** The page area the viewer shows, in PDF user space. */
 export type PageBox = { x: number; y: number; width: number; height: number };

@@ -22,7 +22,7 @@ bun run test:e2e
 
 ## Deploying behind a proxy
 
-The app carries its own Content-Security-Policy in `src/app/index.html`, so it stays locked down
+The app carries its own Content-Security-Policy in `src/index.html`, so it stays locked down
 wherever it is served from. Three headers cannot be set from a page and belong to whatever
 terminates TLS in front of it:
 

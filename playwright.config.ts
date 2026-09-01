@@ -11,7 +11,7 @@ export default defineConfig({
     launchOptions: { executablePath: "/opt/pw-browsers/chromium" },
   },
   webServer: {
-    command: `bun src/app/server.ts`,
+    command: `bun src/server.ts`,
     url: `http://localhost:${PORT}`,
     env: { PORT: String(PORT) },
     reuseExistingServer: true,

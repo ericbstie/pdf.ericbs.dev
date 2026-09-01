@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import type { Command } from "../lib/edits";
+import type { Command } from "../../lib/edits";
 import { forgetSession, keepEdits, keepFile, loadSession } from "./session";
 
 type Fire = (() => void) | null;

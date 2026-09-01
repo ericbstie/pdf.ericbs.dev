@@ -1,8 +1,8 @@
 import { LineCapStyle, PDFDocument, type PDFFont, type PDFForm, type PDFPage, StandardFonts, degrees, rgb } from "pdf-lib";
-import type { Box, Marks, Stroke, Writing } from "../lib/edits";
-import { checkPath, checkWidth, polylinePath } from "../lib/paths";
+import type { Box, Marks, Stroke, Writing } from "../../lib/edits";
+import { checkPath, checkWidth, polylinePath } from "../../lib/paths";
 import { type PageBox, toUserPoint } from "./space";
-import { keepEncodable } from "../lib/text";
+import { keepEncodable } from "../../lib/text";
 
 const INK = rgb(0.05, 0.05, 0.05);
 

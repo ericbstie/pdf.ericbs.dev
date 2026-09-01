@@ -107,18 +107,21 @@ For more information, read the Bun API docs in `node_modules/bun-types/docs/**.m
 
 ## Source layout
 
-`src/frontend.tsx` is the only file directly in `src/`. It holds the root
-component and mounts it; there is no separate `App.tsx`. Everything else lives in
-one of three folders:
+`src/` holds only what belongs to the app as a whole: `frontend.tsx`, which mounts
+the page the URL asks for and does nothing else; `index.html`, the shell it mounts
+into; `index.css`, the global stylesheet; `server.ts`, which serves them; and
+`modules.d.ts` for ambient declarations. Everything else is under one of three
+folders:
 
-- `src/components/<Name>/` — one folder per component. It holds the component
-  itself, its test file, and any module used *only* by that component: helper
-  functions, or sub-components extracted for readability rather than reuse.
-- `src/lib/` — modules shared by two or more components.
-- `src/app/` — what belongs to the root component alone: the HTML shell it mounts
-  into, the global stylesheet, the server that serves it, ambient type
-  declarations, and its exclusive helpers.
+- `src/pages/<name>/` — one folder per page. It holds the page component, its
+  tests, and every module only that page uses. Sub-components extracted from the
+  page for readability rather than reuse go in a `_components/` folder beside it;
+  the underscore keeps them sorted apart from the page's own modules.
+- `src/components/<Name>/` — components meant to be used by more than one page,
+  each with its own folder holding the component, its tests, and any module only
+  that component uses.
+- `src/lib/` — plain modules shared across pages or components.
 
-A module moves out of a component folder into `src/lib/` the moment a second
-component imports it, and moves back in if it ever has one caller again. Tests
-sit beside the code they cover, so a component's folder is the whole story.
+A module moves out of a page or component folder into `src/lib/` the moment a
+second one imports it, and moves back in if it ever has one caller again. Tests
+sit beside the code they cover, so a folder is the whole story.
