@@ -25,7 +25,7 @@ async function writeAndSelect(page: Page, words = "Paid in full"): Promise<void>
   await page.locator('[data-tool="text"]').click();
   const point = await viewportPoint(page, AT);
   await page.mouse.click(point.x, point.y);
-  await page.locator('[data-testid="text-selection"]').waitFor();
+  await page.locator('[data-testid="mark-selection"]').waitFor();
 }
 
 test("writes where you click", async ({ page }) => {
@@ -44,34 +44,34 @@ test("keeps nothing when you type nothing", async ({ page }) => {
 
 test("clicking a writing takes hold of it", async ({ page }) => {
   await writeAndSelect(page);
-  await expect(page.locator('[data-testid="remove-text"]')).toBeVisible();
+  await expect(page.locator('[data-testid="remove-mark"]')).toBeVisible();
 });
 
 test("clicking the paper beside it lets go", async ({ page }) => {
   await writeAndSelect(page);
   const away = await viewportPoint(page, { x: 400, y: 600 });
   await page.mouse.click(away.x, away.y);
-  await expect(page.locator('[data-testid="text-selection"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="mark-selection"]')).toHaveCount(0);
 });
 
 test("the X takes the writing off the page", async ({ page }) => {
   await writeAndSelect(page);
-  await page.locator('[data-testid="remove-text"]').click();
-  await expect(page.locator('[data-testid="text-selection"]')).toHaveCount(0);
+  await page.locator('[data-testid="remove-mark"]').click();
+  await expect(page.locator('[data-testid="mark-selection"]')).toHaveCount(0);
   await expect.poll(() => darkPixels(page, BLANK)).toBe(0);
 });
 
 test("Delete takes the writing off the page", async ({ page }) => {
   await writeAndSelect(page);
   await page.keyboard.press("Delete");
-  await expect(page.locator('[data-testid="text-selection"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="mark-selection"]')).toHaveCount(0);
   await expect.poll(() => darkPixels(page, BLANK)).toBe(0);
 });
 
 test("Escape lets go of the writing without taking it away", async ({ page }) => {
   await writeAndSelect(page);
   await page.keyboard.press("Escape");
-  await expect(page.locator('[data-testid="text-selection"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="mark-selection"]')).toHaveCount(0);
   expect(await darkPixels(page, BLANK)).toBeGreaterThan(50);
 });
 
@@ -143,7 +143,7 @@ test("a writing rubbed out to nothing but spaces goes away", async ({ page }) =>
   await page.mouse.click(point.x, point.y);
   await page.locator('[data-testid="text-input"]').fill("   ");
   await page.keyboard.press("Enter");
-  await expect(page.locator('[data-testid="text-selection"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="mark-selection"]')).toHaveCount(0);
   await expect.poll(() => darkPixels(page, BLANK)).toBe(0);
 });
 
@@ -181,7 +181,7 @@ test("a checkbox ticked while the caret is open is the thing the next undo takes
   await page.locator('[data-tool="text"]').click();
   const spot = await viewportPoint(page, AT);
   await page.mouse.click(spot.x, spot.y);
-  await page.locator('[data-testid="text-selection"]').waitFor();
+  await page.locator('[data-testid="mark-selection"]').waitFor();
   await page.mouse.click(spot.x, spot.y);
   await expect(page.locator('[data-testid="text-input"]')).toHaveValue("Paid");
   await page.keyboard.press("End");

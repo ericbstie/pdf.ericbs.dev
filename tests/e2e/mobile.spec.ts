@@ -105,7 +105,7 @@ test("a finger takes hold of a writing and carries it, rather than scrolling the
   await expect.poll(() => darkPixels(page, BLANK)).toBeGreaterThan(50);
 
   await page.touchscreen.tap(at.x, at.y);
-  const box = page.locator('[data-testid="text-selection"]');
+  const box = page.locator('[data-testid="mark-selection"]');
   await box.waitFor();
   const scrolled = await page.evaluate(() => document.querySelector(".overflow-auto")!.scrollTop);
   const to = await viewportPoint(page, { x: 210, y: 480 });
@@ -127,19 +127,19 @@ async function writeAndHold(page: import("@playwright/test").Page): Promise<{ x:
   await page.keyboard.press("Enter");
   await page.locator('[data-tool="text"]').tap();
   await page.touchscreen.tap(at.x, at.y);
-  await page.locator('[data-testid="text-selection"]').waitFor();
-  return centerOf((await page.locator('[data-testid="text-selection"]').boundingBox())!);
+  await page.locator('[data-testid="mark-selection"]').waitFor();
+  return centerOf((await page.locator('[data-testid="mark-selection"]').boundingBox())!);
 }
 
 test("a fingertip's own wobble opens a held writing rather than nudging it", async ({ page }) => {
   const held = await writeAndHold(page);
-  const before = (await page.locator('[data-testid="text-selection"]').boundingBox())!;
+  const before = (await page.locator('[data-testid="mark-selection"]').boundingBox())!;
   // No finger lands and lifts on the same pixel, and none of that is meant as a drag.
   await touchDrag(page, held, { x: held.x + 3, y: held.y + 2 }, 3);
   await expect(page.locator('[data-testid="text-input"]')).toHaveValue("Paid in full");
   await page.keyboard.press("Escape");
-  await page.locator('[data-testid="text-selection"]').waitFor();
-  expect((await page.locator('[data-testid="text-selection"]').boundingBox())!.x).toBeCloseTo(before.x, 1);
+  await page.locator('[data-testid="mark-selection"]').waitFor();
+  expect((await page.locator('[data-testid="mark-selection"]').boundingBox())!.x).toBeCloseTo(before.x, 1);
 });
 
 test("a pinch with a finger resting on a held writing zooms without carrying it", async ({ page }) => {
@@ -158,7 +158,7 @@ test("a pinch with a finger resting on a held writing zooms without carrying it"
   await input.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await input.detach();
   await page.waitForTimeout(300);
-  const after = await pdfPointAt(page, centerOf((await page.locator('[data-testid="text-selection"]').boundingBox())!));
+  const after = await pdfPointAt(page, centerOf((await page.locator('[data-testid="mark-selection"]').boundingBox())!));
   expect(after.x).toBeCloseTo(before.x, 0);
   expect(after.y).toBeCloseTo(before.y, 0);
 });

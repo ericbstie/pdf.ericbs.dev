@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type Box, type Command, type Writing, marksFrom, marksOnPage, withoutLast } from "./edits";
+import { type Box, type Command, type Stroke, type Writing, marksFrom, marksOnPage, withoutLast } from "./edits";
 
 /** Boxes are told apart by where they sit, so each one gets a place of its own. */
 const box = (at: number): Box => ({ page: 1, rect: { x: at * 40, y: 0, width: 10, height: 10 } });
@@ -8,15 +8,38 @@ const toggleOf = (box: Box): Command => ({ kind: "toggle", box });
 
 /** A form checkbox the file was already carrying a tick in. Fields are told apart by name. */
 const arrived: Box = { page: 1, field: "agree", rect: { x: 0, y: 0, width: 10, height: 10 }, ticked: true };
-const draw: Command = { kind: "draw", stroke: { page: 1, points: [{ x: 0, y: 0 }], width: 2 } };
+const stroke = (id: string, at = { x: 0, y: 0 }, page = 1): Stroke => ({ id, page, points: [at], width: 2 });
+const draw: Command = { kind: "draw", stroke: stroke("line") };
 const writing = (id: string, at = { x: 5, y: 5 }, text = "hi"): Writing => ({ id, page: 1, at, text, size: 14 });
 const write: Command = { kind: "write", writing: writing("one") };
 
 describe("marksFrom", () => {
   test("keeps strokes and writings in the order they were made", () => {
-    const marks = marksFrom([draw, write, draw]);
-    expect(marks.strokes).toHaveLength(2);
+    const marks = marksFrom([draw, write, { kind: "draw", stroke: stroke("second") }]);
+    expect(marks.strokes.map(one => one.id)).toEqual(["line", "second"]);
     expect(marks.writings).toHaveLength(1);
+  });
+
+  test("a stroke drawn again takes the place of the one it names", () => {
+    const moved: Command = { kind: "redraw", stroke: stroke("line", { x: 90, y: 90 }) };
+    expect(marksFrom([draw, moved]).strokes).toEqual([stroke("line", { x: 90, y: 90 })]);
+  });
+
+  test("a redrawn stroke stays where it was in the order, so nothing jumps in front of it", () => {
+    const second: Command = { kind: "draw", stroke: stroke("second") };
+    const moved: Command = { kind: "redraw", stroke: stroke("line", { x: 90, y: 90 }) };
+    expect(marksFrom([draw, second, moved]).strokes.map(one => one.id)).toEqual(["line", "second"]);
+  });
+
+  test("an erasure takes a stroke away and leaves the writings alone", () => {
+    const marks = marksFrom([draw, write, { kind: "erase", id: "line" }]);
+    expect(marks.strokes).toEqual([]);
+    expect(marks.writings).toHaveLength(1);
+  });
+
+  test("a redraw cannot bring back a stroke that was erased before it", () => {
+    const commands: Command[] = [draw, { kind: "erase", id: "line" }, { kind: "redraw", stroke: stroke("line") }];
+    expect(marksFrom(commands).strokes).toEqual([]);
   });
 
   test("a single toggle ticks the box", () => {
@@ -105,6 +128,15 @@ test("undoing a move puts the writing back where it was", () => {
   expect(marksFrom(withoutLast([write, moved])).writings).toEqual([writing("one")]);
 });
 
+test("undoing a redraw puts the stroke back where it was", () => {
+  const moved: Command = { kind: "redraw", stroke: stroke("line", { x: 90, y: 90 }) };
+  expect(marksFrom(withoutLast([draw, moved])).strokes).toEqual([stroke("line")]);
+});
+
+test("undoing an erasure brings the stroke back", () => {
+  expect(marksFrom(withoutLast([draw, { kind: "erase", id: "line" }])).strokes).toEqual([stroke("line")]);
+});
+
 test("undoing an erasure brings the writing back", () => {
   const commands: Command[] = [write, { kind: "erase", id: "one" }];
   expect(marksFrom(withoutLast(commands)).writings).toEqual([writing("one")]);
@@ -113,7 +145,7 @@ test("undoing an erasure brings the writing back", () => {
 test("marksOnPage keeps only what belongs to that page", () => {
   const marks = marksFrom([
     draw,
-    { kind: "draw", stroke: { page: 2, points: [{ x: 0, y: 0 }], width: 2 } },
+    { kind: "draw", stroke: stroke("overleaf", { x: 0, y: 0 }, 2) },
     toggle(1),
     toggleOf({ ...arrived, page: 2 }),
   ]);

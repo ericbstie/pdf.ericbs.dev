@@ -75,7 +75,7 @@ test("a writing over the printed words is taken hold of rather than selected", a
   await page.keyboard.press("Enter");
   await page.locator('[data-tool="text"]').click();
   await page.mouse.click(over.x, over.y);
-  await expect(page.locator('[data-testid="text-selection"]')).toBeVisible();
+  await expect(page.locator('[data-testid="mark-selection"]')).toBeVisible();
   expect(await selectedText(page)).toBe("");
 });
 

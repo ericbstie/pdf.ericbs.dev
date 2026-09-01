@@ -105,7 +105,7 @@ export function Editor() {
   const [file, setFile] = useState<OpenFile | null>(null);
   const [commands, setCommands] = useState<Command[]>([]);
   const [tool, setTool] = useState<Tool>(null);
-  /** The writing in hand, by id, wherever in the document it sits. Only ever one at a time. */
+  /** The mark in hand, by id, wherever in the document it sits. Only ever one at a time. */
   const [selected, setSelected] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -257,7 +257,8 @@ export function Editor() {
 
   /** Undo can take away what is in hand, and nothing is held once it is no longer on a page. */
   useEffect(() => {
-    if (selected && !marks.writings.some(writing => writing.id === selected)) setSelected(null);
+    const onAPage = [...marks.writings, ...marks.strokes].some(mark => mark.id === selected);
+    if (selected && !onAPage) setSelected(null);
   }, [marks, selected]);
 
   /** The browser writes the wording; all a page may do is say that leaving would cost something. */
@@ -299,7 +300,7 @@ export function Editor() {
         else setTool(null);
       }
       if ((event.key === "Delete" || event.key === "Backspace") && selected) {
-        // Backspace is the browser's way back a page, and nobody deleting a word means that.
+        // Backspace is the browser's way back a page, and nobody deleting a mark means that.
         event.preventDefault();
         record({ kind: "erase", id: selected });
         setSelected(null);

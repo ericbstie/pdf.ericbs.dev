@@ -80,7 +80,7 @@ test("a drawn stroke is stroked, not filled", async () => {
   const source = await buildPlainPdf();
   const { bytes: saved } = await exportPdf(source, {
     ...nothing,
-    strokes: [{ page: 1, points: [{ x: 10, y: 10 }, { x: 90, y: 40 }], width: 2 }],
+    strokes: [{ id: "one", page: 1, points: [{ x: 10, y: 10 }, { x: 90, y: 40 }], width: 2 }],
   });
   const before = await countPaintOps(source);
   const after = await countPaintOps(saved);
@@ -91,7 +91,7 @@ test("a drawn stroke is stroked, not filled", async () => {
 test("marks aimed past the last page are dropped", async () => {
   const { bytes: saved } = await exportPdf(await buildPlainPdf(), {
     ...nothing,
-    strokes: [{ page: 7, points: [{ x: 0, y: 0 }], width: 2 }],
+    strokes: [{ id: "one", page: 7, points: [{ x: 0, y: 0 }], width: 2 }],
   });
   expect(saved.length).toBeGreaterThan(0);
 });
@@ -116,7 +116,7 @@ for (const rotation of [0, 90, 180, 270]) {
     const at = { x: 120, y: 200 };
     const { bytes: saved } = await exportPdf(await buildRotatedPdf(rotation), {
       ...nothing,
-      strokes: [{ page: 1, points: [at], width: 3 }],
+      strokes: [{ id: "one", page: 1, points: [at], width: 3 }],
     });
     const [corner] = await readPathCorners(saved);
     expect(corner).toBeDefined();
