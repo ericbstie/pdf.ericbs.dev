@@ -39,6 +39,10 @@
   text-align: initial;
   line-height: 1;
   forced-color-adjust: none;
+  /* A phone inflates the type in anything it takes for a column of prose, and would move it off
+     the letters underneath. The size is measured from the page, and nothing else may touch it. */
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
   transform-origin: 0 0;
   /* The bare paper between the words belongs to the page below, which has ticks to toggle on it. */
   pointer-events: none;
@@ -72,6 +76,7 @@
   &[data-live="true"] :is(span, br) {
     pointer-events: auto;
     cursor: text;
+    -webkit-user-select: text;
     user-select: text;
   }
 

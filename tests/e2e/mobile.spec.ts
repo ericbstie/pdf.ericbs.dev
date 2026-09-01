@@ -250,3 +250,60 @@ test("a pinched page is painted for the screen's own pixels, not just its points
   const perPoint = await page.evaluate(() => Math.min(window.devicePixelRatio, 2));
   await expect.poll(() => sharpness(sharpPart(page))).toBeGreaterThanOrEqual(perPoint - 0.01);
 });
+
+/** The words the plain fixture is printed with, laid over the painting of them. */
+const LINE = "Rental agreement";
+
+function words(page: import("@playwright/test").Page) {
+  return page.locator('[data-text="1"] span').first();
+}
+
+/**
+ * What a word is under a touch, which is the very question a finger held on the page asks. The
+ * long press itself is the browser's own and cannot be injected, so this asks it directly.
+ */
+async function wordUnder(page: import("@playwright/test").Page, at: { x: number; y: number }): Promise<string> {
+  return page.evaluate(([x, y]) => {
+    const caret = document.caretRangeFromPoint(x, y);
+    const found = caret?.startContainer.parentElement?.closest("[data-text]");
+    return found ? (caret!.startContainer.textContent ?? "") : "";
+  }, [at.x, at.y] as const);
+}
+
+test("a finger comes down on the words rather than on the paper below them", async ({ page }) => {
+  await openPdf(page, await buildPlainPdf());
+  await expect(words(page)).toHaveText(LINE);
+  const box = (await words(page).boundingBox())!;
+  const on = { x: box.x + box.width * 0.15, y: box.y + box.height / 2 };
+  expect(await wordUnder(page, on)).toContain("Rental");
+  await expect(words(page)).toHaveCSS("user-select", "text");
+});
+
+test("with the pen out the words are not there to be selected", async ({ page }) => {
+  await openPdf(page, await buildPlainPdf());
+  await expect(words(page)).toHaveText(LINE);
+  const box = (await words(page).boundingBox())!;
+  await page.locator('[data-tool="draw"]').tap();
+  expect(await wordUnder(page, { x: box.x + box.width * 0.15, y: box.y + box.height / 2 })).toBe("");
+});
+
+test("a finger drawn across the words scrolls the page rather than selecting them", async ({ page }) => {
+  await openPdf(page, await buildPlainPdf(3));
+  await expect(words(page)).toHaveText(LINE);
+  const box = (await words(page).boundingBox())!;
+  const middle = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await touchDrag(page, middle, { x: middle.x, y: middle.y - 200 });
+  expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toBe("");
+  expect((await words(page).boundingBox())!.y).toBeLessThan(box.y - 100);
+});
+
+test("the words are still over the letters after a pinch", async ({ page }) => {
+  await openPdf(page, await buildPlainPdf());
+  await expect(words(page)).toHaveText(LINE);
+  const sheet = await widthOnScreen(pageCanvas(page));
+  const before = (await words(page).boundingBox())!;
+  await pinch(page, await viewportPoint(page, { x: 100, y: 700 }), 100, 260);
+  const grew = (await widthOnScreen(pageCanvas(page))) / sheet;
+  expect(grew).toBeGreaterThan(1.5);
+  expect((await words(page).boundingBox())!.width / before.width).toBeCloseTo(grew, 1);
+});
