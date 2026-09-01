@@ -6,14 +6,32 @@ const MARGIN = 3;
 /** A stroke of nothing at all — a tap with the pen — still needs a box big enough to be seen. */
 const LEAST_SIZE = 6;
 
-/** The box a stroke fills, in page points: the ink itself, and the width the pen lays it down at. */
+/**
+ * The box a stroke fills, in page points: the ink itself, and the width the pen lays it down at.
+ *
+ * Walked rather than spread into `Math.min`: a stroke holds a point for every report the pointer
+ * made, and a long enough drag has more of them than an engine will take arguments.
+ */
 export function strokeRect(stroke: Stroke): Rect {
-  const xs = stroke.points.map(point => point.x);
-  const ys = stroke.points.map(point => point.y);
   const pad = Math.max(stroke.width / 2, LEAST_SIZE / 2);
-  const left = Math.min(...xs) - pad;
-  const top = Math.min(...ys) - pad;
-  return { x: left, y: top, width: Math.max(...xs) + pad - left, height: Math.max(...ys) + pad - top };
+  const first = stroke.points[0];
+  // A stroke is only ever put down with the point the pen came down on, so this is nothing that
+  // happens; a box of no size is what an empty one would fill.
+  if (!first) return { x: 0, y: 0, width: 0, height: 0 };
+  const edges = { left: first.x, top: first.y, right: first.x, bottom: first.y };
+  for (let index = 1; index < stroke.points.length; index += 1) {
+    const point = stroke.points[index]!;
+    edges.left = Math.min(edges.left, point.x);
+    edges.top = Math.min(edges.top, point.y);
+    edges.right = Math.max(edges.right, point.x);
+    edges.bottom = Math.max(edges.bottom, point.y);
+  }
+  return {
+    x: edges.left - pad,
+    y: edges.top - pad,
+    width: edges.right - edges.left + pad * 2,
+    height: edges.bottom - edges.top + pad * 2,
+  };
 }
 
 /** How far a point lies from a line drawn between two others. */
@@ -30,13 +48,11 @@ function fromSegment(point: Point, start: Point, end: Point): number {
  * box around it: a diagonal fills a box it hardly touches, and the paper inside that box is paper.
  */
 export function fromStroke(stroke: Stroke, point: Point): number {
-  const [first, ...rest] = stroke.points;
+  const first = stroke.points[0];
   if (!first) return Infinity;
   let nearest = Math.hypot(point.x - first.x, point.y - first.y);
-  let previous = first;
-  for (const next of rest) {
-    nearest = Math.min(nearest, fromSegment(point, previous, next));
-    previous = next;
+  for (let index = 1; index < stroke.points.length; index += 1) {
+    nearest = Math.min(nearest, fromSegment(point, stroke.points[index - 1]!, stroke.points[index]!));
   }
   return nearest;
 }
