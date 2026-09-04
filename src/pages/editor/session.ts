@@ -8,13 +8,17 @@ export type Session = { file: KeptFile; commands: Command[]; saved: boolean };
 
 type KeptEdits = { id: string; commands: Command[]; saved: boolean };
 
-/** Edits kept before a writing carried an id: give each one, so it can be taken hold of again. */
+/** Edits kept before a mark carried an id: give each one, so it can be taken hold of again. */
 function named(commands: readonly Command[]): Command[] {
-  return commands.map(command =>
-    command.kind === "write" && !command.writing.id
-      ? { ...command, writing: { ...command.writing, id: newId() } }
-      : command,
-  );
+  return commands.map(command => {
+    if (command.kind === "write" && !command.writing.id) {
+      return { ...command, writing: { ...command.writing, id: newId() } };
+    }
+    if (command.kind === "draw" && !command.stroke.id) {
+      return { ...command, stroke: { ...command.stroke, id: newId() } };
+    }
+    return command;
+  });
 }
 
 const DATABASE = "pdf.ericbs.dev";

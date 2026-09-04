@@ -3,7 +3,9 @@ import type { Box } from "./edits";
 import {
   boxAt,
   fitScale,
+  ontoPage,
   overlaps,
+  shifted,
   paintDensity,
   reachFor,
   stillFits,
@@ -131,4 +133,28 @@ test("overlapping rects are recognised", () => {
 
 test("touching edges do not count as overlap", () => {
   expect(overlaps({ x: 0, y: 0, width: 10, height: 10 }, { x: 10, y: 0, width: 10, height: 10 })).toBe(false);
+});
+
+test("shifted takes a rectangle without resizing it", () => {
+  expect(shifted({ x: 10, y: 20, width: 30, height: 40 }, { x: -5, y: 5 })).toEqual({ x: 5, y: 25, width: 30, height: 40 });
+});
+
+test("a mark may be carried anywhere its own part of it stays on the paper", () => {
+  const mark = { x: 100, y: 100, width: 50, height: 20 };
+  expect(ontoPage({ x: 40, y: 40 }, mark, LETTER)).toEqual({ x: 40, y: 40 });
+});
+
+test("a mark carried off the top-left corner is stopped at it", () => {
+  const mark = { x: 100, y: 100, width: 50, height: 20 };
+  expect(ontoPage({ x: -400, y: -400 }, mark, LETTER)).toEqual({ x: -100, y: -100 });
+});
+
+test("a mark carried off the far edge is stopped with the whole of it on the page", () => {
+  const mark = { x: 100, y: 100, width: 50, height: 20 };
+  expect(ontoPage({ x: 900, y: 900 }, mark, LETTER)).toEqual({ x: 462, y: 672 });
+});
+
+test("a mark too big for the page keeps its own corner on it", () => {
+  const wider = { x: 0, y: 0, width: 900, height: 20 };
+  expect(ontoPage({ x: 300, y: 0 }, wider, LETTER).x).toBeCloseTo(0, 10);
 });

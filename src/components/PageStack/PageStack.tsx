@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import { type RefObject, useMemo } from "react";
 import { type Command, type Marks, marksOnPage } from "../../lib/edits";
 import type { OpenPdf } from "../../lib/pdf";
 import { atScale } from "../../lib/zoom";
@@ -30,6 +30,10 @@ type Props = {
  * the bottom is for the toolbar, which keeps its size on the screen whatever the pages are doing.
  */
 export function PageStack({ pdf, ref, settled, pixelRatio, within, marks, tool, selected, onSelect, onCommand }: Props) {
+  // Sliced once per file per revision rather than once per page on every render: a page repaints
+  // its canvas whenever the marks it was handed are a new object, and picking up a tool or a mark
+  // is not a revision.
+  const pageMarks = useMemo(() => pdf.sizes.map((_, index) => marksOnPage(marks, index + 1)), [marks, pdf]);
   return (
     <div
       ref={ref}
@@ -47,7 +51,7 @@ export function PageStack({ pdf, ref, settled, pixelRatio, within, marks, tool, 
           settled={settled}
           pixelRatio={pixelRatio}
           within={within}
-          marks={marksOnPage(marks, index + 1)}
+          marks={pageMarks[index]!}
           tool={tool}
           selected={selected}
           onSelect={onSelect}

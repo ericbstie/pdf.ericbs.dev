@@ -4,9 +4,9 @@ import { overlaps } from "./viewport";
 export type Point = { x: number; y: number };
 export type Rect = { x: number; y: number; width: number; height: number };
 
-export type Stroke = { page: number; points: readonly Point[]; width: number };
+/** `id` is the name a later command calls a mark by, to move it, reword it, or take it away. */
+export type Stroke = { id: string; page: number; points: readonly Point[]; width: number };
 
-/** `id` is the name a later command calls it by, to move it, reword it, or take it away. */
 export type Writing = { id: string; page: number; at: Point; text: string; size: number };
 
 /**
@@ -18,6 +18,7 @@ export type Box = { page: number; rect: Rect; field?: string; ticked?: boolean }
 
 export type Command =
   | { kind: "draw"; stroke: Stroke }
+  | { kind: "redraw"; stroke: Stroke }
   | { kind: "write"; writing: Writing }
   | { kind: "revise"; writing: Writing }
   | { kind: "erase"; id: string }
@@ -59,16 +60,25 @@ function foldToggles(toggles: readonly Box[]): Box[] {
   return ticked;
 }
 
+/** What a command makes, or does again: the mark it carries, when it carries one of this kind. */
+type Reader<Mark> = (command: Command) => Mark | undefined;
+
 /**
- * The writings as they stand after every revision: one for each id, in the order they were first
- * written, since a map keeps a key where it first put it. A revision only reaches a writing that
- * is still there, so undoing back past an erasure cannot bring one back by a later revision.
+ * The marks of one kind as they stand after every revision: one for each id, in the order they
+ * were first made, since a map keeps a key where it first put it. A revision only reaches a mark
+ * that is still there, so undoing back past an erasure cannot bring one back by a later revision.
  */
-function foldWritings(commands: readonly Command[]): Writing[] {
-  const kept = new Map<string, Writing>();
+function fold<Mark extends { id: string }>(
+  commands: readonly Command[],
+  made: Reader<Mark>,
+  revised: Reader<Mark>,
+): Mark[] {
+  const kept = new Map<string, Mark>();
   for (const command of commands) {
-    if (command.kind === "write") kept.set(command.writing.id, command.writing);
-    if (command.kind === "revise" && kept.has(command.writing.id)) kept.set(command.writing.id, command.writing);
+    const fresh = made(command);
+    if (fresh) kept.set(fresh.id, fresh);
+    const again = revised(command);
+    if (again && kept.has(again.id)) kept.set(again.id, again);
     if (command.kind === "erase") kept.delete(command.id);
   }
   return [...kept.values()];
@@ -77,8 +87,16 @@ function foldWritings(commands: readonly Command[]): Writing[] {
 export function marksFrom(commands: readonly Command[]): Marks {
   const flipped = foldToggles(commands.flatMap(command => (command.kind === "toggle" ? [command.box] : [])));
   return {
-    strokes: commands.flatMap(command => (command.kind === "draw" ? [command.stroke] : [])),
-    writings: foldWritings(commands),
+    strokes: fold(
+      commands,
+      command => (command.kind === "draw" ? command.stroke : undefined),
+      command => (command.kind === "redraw" ? command.stroke : undefined),
+    ),
+    writings: fold(
+      commands,
+      command => (command.kind === "write" ? command.writing : undefined),
+      command => (command.kind === "revise" ? command.writing : undefined),
+    ),
     // A toggle turns a box away from the state it was found in, so one found ticked comes back cleared.
     ticks: flipped.filter(box => !box.ticked),
     unticks: flipped.filter(box => box.ticked),
