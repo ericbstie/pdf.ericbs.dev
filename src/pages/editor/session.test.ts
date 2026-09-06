@@ -56,7 +56,7 @@ function fakeIndexedDB(behaviour: Behaviour): { factory: IDBFactory; kept: Map<s
 }
 
 const file = { id: "one", name: "form.pdf", bytes: new Uint8Array([37, 80, 68, 70]) };
-const drawn: Command = { kind: "draw", stroke: { page: 1, points: [{ x: 1, y: 2 }], width: 2 } };
+const drawn: Command = { kind: "draw", stroke: { id: "line", page: 1, points: [{ x: 1, y: 2 }], width: 2 } };
 
 const realIndexedDB = globalThis.indexedDB;
 

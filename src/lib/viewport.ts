@@ -96,6 +96,28 @@ export function stillFits(part: Rect, visible: Rect): boolean {
   return around && part.width * part.height <= visible.width * visible.height * MOST_SLACK;
 }
 
+/** The same rectangle, taken that far from where it was. */
+export function shifted(rect: Rect, by: Point): Rect {
+  return { ...rect, x: rect.x + by.x, y: rect.y + by.y };
+}
+
+/**
+ * How far a mark may be carried and still belong to the page, where `kept` is the part of it that
+ * has to stay on the paper. Past the edge the canvas clips it and the saved file places it off the
+ * sheet, so it would be gone from both while still holding a place in the undo.
+ *
+ * A mark too big to fit keeps its top-left corner on the page: something has to be reachable, and
+ * that is the corner a hand goes looking for it by.
+ */
+export function ontoPage(by: Point, kept: Rect, page: Area): Point {
+  const held = (offset: number, from: number, size: number, room: number) =>
+    Math.max(Math.min(offset, room - size - from), -from);
+  return {
+    x: held(by.x, kept.x, kept.width, page.width),
+    y: held(by.y, kept.y, kept.height, page.height),
+  };
+}
+
 export function toPagePoint(offset: Point, scale: number): Point {
   return { x: offset.x / scale, y: offset.y / scale };
 }

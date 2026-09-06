@@ -36,3 +36,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # test output
 test-results
 playwright-report
+
+# agent worktrees (transient checkouts, removed when the agent finishes)
+.claude/worktrees
