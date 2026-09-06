@@ -3,33 +3,137 @@ name: minimal-increment
 description: Enforces minimal-scope, incremental coding work. Triggers automatically on any coding request. Scopes the request, implements exactly what was asked, then prunes anything extra before finishing.
 ---
 
-# Minimal Increment
+# Incremental work
 
-Applies to coding work only. Runs in three phases: scope, implement, prune.
+Code is malleable. Mold the code through multiple iterations instead of one-shotting.
+Leave openings for pivots when unexpected outcomes arise.
 
-## Phase 1 — Scope
+## What does this really mean?
 
-Before writing code, determine whether the request is trivial or non-trivial.
+When given a goal, break it down to the tiniest possible steps. Implement any small verifiable change, even if it's a change that will be rewritten later.
+Define function signatures that you would like to exist (ref function-design skill), then stub them and test the logic you just implemented independently before proceeding to the next step.
 
-- Trivial (single obvious change, no ambiguity): skip straight to implementation, leaving out tests, error handling, logging, docs, config, and abstractions unless explicitly requested.
-- Non-trivial: ask the user which of the following are in scope for this request, using a multi-select style question: tests, error handling, logging, documentation, config, abstractions/generalization. Do not infer or extrapolate scope on your own — only include what's explicitly ticked.
+## Example - LZ compression task (incremental changes with stubbed functions)
 
-After the scope answer, write a definition-of-done (DOD) list from the ticked items and track it with the todo tool for the rest of the session. The DOD list itself is never pruned — it's the reference, not an output.
+```py
+print("Hello world")
+```
 
-## Phase 2 — Implement
+```py
+import argparse
 
-- Write only what was explicitly requested plus whatever was ticked into the DOD.
-- Prefer editing existing files over creating new ones.
-- No new dependencies.
-- Exception: if the truly minimal version would risk data loss or open a security hole, do the safe thing instead and say so plainly — don't silently expand scope.
-- Keep a separate internal/meta note of implementation approach or code-style decisions (e.g. "keep this function short"). Never leak these adjectives or process language into user-facing output — no headings like "Short and simple version," no code comments describing the brief.
+if __name__ == "__main__":
+    description = "Compresses/decompresses a file using the " \
+                  "Lempel Ziv (LZ) compression algorithm."
+    arg_parser = argparse.ArgumentParser(description=description)
+    arg_parser.add_argument("-d", "--decompress", action="store_true")
+    arg_parser.add_argument("input_file_name", metavar="input-file")
+    arg_parser.add_argument("output_file_name",
+                            nargs="?",
+                            metavar="output-file",
+                            default="output.txt")
+    args = arg_parser.parse_args()
+    print(args)
+```
 
-## Phase 3 — Prune / Verify
+```py
+import argparse
 
-- Compare everything changed in the session against the DOD list.
-- Anything not on the DOD list gets silently removed — no explanation, no announcement, just remove it.
-- The DOD list itself stays intact as the record of what was actually promised.
 
-## Finishing
+def lz_decompress_bytes(input_data: bytes) -> bytes:
+    print("Hello from decompress!")
+    return b""
 
-Stop as soon as the request is fulfilled — do not keep polishing or expanding. End with a brief "Here's what could be done next:" section, split into high priority and low priority, and stop there. Do not act on it unless asked.
+
+def lz_compress_bytes(input_data: bytes) -> bytes:
+    print("Hello from compress!")
+    return b""
+
+
+if __name__ == "__main__":
+    description = "Compresses/decompresses a file using the " \
+                  "Lempel Ziv (LZ) compression algorithm."
+    arg_parser = argparse.ArgumentParser(description=description)
+    arg_parser.add_argument("-d", "--decompress", action="store_true")
+    arg_parser.add_argument("input_file_name", metavar="input-file")
+    arg_parser.add_argument("output_file_name",
+                            nargs="?",
+                            metavar="output-file",
+                            default="output.txt")
+    args = arg_parser.parse_args()
+
+    input_data: bytes = b""
+    with open(args.input_file_name, "rb") as file:
+        input_data = file.read()
+    
+    output_data: bytes = b""
+    if args.decompress:
+        print(f"Decompressing {args.input_file_name}", end=" ")
+        print(f"to {args.output_file_name}")
+        output = lz_decompress(input_data)
+    else:
+        print(f"Compressing {args.input_file_name}", end=" ")
+        print(f"to {args.output_file_name}")
+        output = lz_compress(input_data)
+
+    with open(args.output_file_name, "wb") as file:
+        file.write(output)
+```
+
+# Example conversation - Write an optimised two-sum implementation
+
+"I'll start with an easy solution I know works"
+
+```
+def twoSum(nums, target):
+    for i in range(len(nums)):
+        for j in range(i + 1, len(nums)):
+            if nums[i] + nums[j] == target:
+                return [i, j]
+```
+
+"Let me verify this works..."
+*run tests*
+"This works because ... However, it's not optimal because ... I'm sure we can get it smaller by using X... Approach Y might be another solution, but I'll try X first."
+
+```
+def twoSum(nums, target):
+    nums = sorted((num, i) for i, num in enumerate(nums))
+
+    left = 0
+    right = len(nums) - 1
+
+    while left < right:
+        total = nums[left][0] + nums[right][0]
+
+        if total == target:
+            return [nums[left][1], nums[right][1]]
+        elif total < target:
+            left += 1
+        else:
+            right -= 1
+```
+
+"Let me verify this works..."
+*run tests*
+"Good! However, let's try approach Y now. It might be better because ..."
+
+```
+def twoSum(nums, target):
+    seen = {}
+
+    for i, num in enumerate(nums):
+        needed = target - num
+
+        if needed in seen:
+            return [seen[needed], i]
+
+        seen[num] = i
+```
+
+# Minimal changes
+
+Every *surviving* line of code is a liability. Use intermediary steps to flesh out what's needed and what is not.
+Scope down every task to the smallest changes based on what the user explicitly asked for. 
+Anything "good to have" or that should implemented as part of another change should instead be given as a suggestion to the user.
+Only explicit choices are implemented.
