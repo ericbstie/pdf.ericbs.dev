@@ -1,7 +1,9 @@
 ---
 name: minimal-increment
-description: Enforces minimal-scope, incremental coding work. Triggers automatically on any coding request. Scopes the request, implements exactly what was asked, then prunes anything extra before finishing.
+description: Enforces minimal-scope, incremental coding work. Use before making any code changes.
 ---
+
+Always use a TODO list (if available as a tool) and update the TODO list continuously when using this skill.
 
 # Incremental work
 
@@ -137,3 +139,7 @@ Every *surviving* line of code is a liability. Use intermediary steps to flesh o
 Scope down every task to the smallest changes based on what the user explicitly asked for. 
 Anything "good to have" or that should implemented as part of another change should instead be given as a suggestion to the user.
 Only explicit choices are implemented.
+
+# Other
+
+You may also want to use software engineering ideas behind the methodologies "spike", "walking skeleton", "vertical slices", "tracer-bullet", etc. to assist with this process if the changes are large.
